@@ -6,7 +6,7 @@
 	let { children } = $props();
 
 	import { Toaster } from "$components/ui/sonner";
-	import { getTauriTheme, isTauriApp } from "$lib/runtime/isTauri";
+	import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
 	import { ModeWatcher, setMode } from "mode-watcher";
 	import { onMount, tick } from "svelte";
 

@@ -2,7 +2,7 @@
   import { page } from "$app/state";
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
   import * as Sidebar from "$components/ui/sidebar";
-  import { isTauriApp } from "$lib/runtime/isTauri";
+  import { isTauriApp } from "$lib/runtime/tauri";
   import { cn } from "$lib/utils";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 

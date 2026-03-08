@@ -2,16 +2,28 @@
     import { Button } from "$components/ui/button";
     import { Input } from "$components/ui/input";
     import { Label } from "$components/ui/label";
+    import { Monitor, Moon, Sun } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
+    import { setMode } from "mode-watcher";
     import { onMount } from "svelte";
 
     let outputDir = $state("");
     let isEditingDir = $state(false);
     let newDirInput = $state("");
+    let currentTheme = $state("system");
 
     onMount(() => {
         fetchSettings();
+        const storedTheme = localStorage.getItem("mode-watcher-mode");
+        if (storedTheme) {
+            currentTheme = storedTheme;
+        }
     });
+
+    function updateTheme(newTheme: "light" | "dark" | "system") {
+        setMode(newTheme);
+        currentTheme = newTheme;
+    }
 
     async function fetchSettings() {
         try {
@@ -32,7 +44,9 @@
     }
 </script>
 
-<div class="flex-1 flex flex-col p-8 w-full max-w-3xl mx-auto">
+<div
+    class="flex-1 flex flex-col p-8 w-full max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500"
+>
     <div class="mb-10 border-b pb-6">
         <h2 class="text-2xl font-bold tracking-tight text-foreground">
             Settings
@@ -91,6 +105,58 @@
                             }}
                         >
                             Change
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mt-4">
+            <h3
+                class="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4"
+            >
+                Appearance
+            </h3>
+
+            <div class="p-5 rounded-xl border bg-card shadow-sm">
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <Label>Theme</Label>
+                        <p class="text-[13px] text-muted-foreground mb-3">
+                            Customize the application's appearance.
+                        </p>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <Button
+                            variant={currentTheme === "light"
+                                ? "default_soft"
+                                : "secondary"}
+                            class="flex-1 flex gap-2"
+                            onclick={() => updateTheme("light")}
+                        >
+                            <Sun size={16} />
+                            Light
+                        </Button>
+                        <Button
+                            variant={currentTheme === "dark"
+                                ? "default_soft"
+                                : "secondary"}
+                            class="flex-1 flex gap-2"
+                            onclick={() => updateTheme("dark")}
+                        >
+                            <Moon size={16} />
+                            Dark
+                        </Button>
+                        <Button
+                            variant={currentTheme === "system"
+                                ? "default_soft"
+                                : "secondary"}
+                            class="flex-1 flex gap-2"
+                            onclick={() => updateTheme("system")}
+                        >
+                            <Monitor size={16} />
+                            System
                         </Button>
                     </div>
                 </div>

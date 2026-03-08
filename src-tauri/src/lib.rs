@@ -1,6 +1,6 @@
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::sync::Mutex;
-use std::process::{Command, Child};
+use std::process::{Command, Child, Stdio};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -247,6 +247,7 @@ fn start_recording(target_type: String, target_id: u32, state: State<'_, AppStat
 
     let child = Command::new("ffmpeg")
         .args(&args)
+        .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start ffmpeg: {}", e))?;
 
@@ -259,7 +260,10 @@ fn start_recording(target_type: String, target_id: u32, state: State<'_, AppStat
 fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
     let mut guard = state.recording_process.lock().unwrap();
     if let Some(mut child) = guard.take() {
-        let _ = child.kill();
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(b"q\n");
+            let _ = stdin.flush();
+        }
         let _ = child.wait();
     } else {
         return Err("Not recording".into());

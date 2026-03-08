@@ -1,9 +1,7 @@
 <script lang="ts">
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
-  import { Button } from "$components/ui/button";
   import { Trigger as SidebarTrigger } from "$components/ui/sidebar";
-  import { Hexagon, Moon, Sun } from "@lucide/svelte";
-  import { mode, toggleMode } from "mode-watcher";
+  import { Hexagon } from "@lucide/svelte";
 </script>
 
 <header
@@ -18,7 +16,7 @@
       data-tauri-drag-region
     >
       <div
-        class="flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm"
+        class="flex size-8 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm"
         data-tauri-drag-region
       >
         <Hexagon size={18} class="fill-current" strokeWidth={2.5} />
@@ -33,18 +31,6 @@
   </a>
   <div class="inline-flex items-center gap-2">
     <SearchCommandMenu iconOnly />
-    <Button
-      variant="ghost"
-      size="icon"
-      onclick={toggleMode}
-      class="rounded-full"
-    >
-      {#if mode.current === "light"}
-        <Sun size={16} />
-      {:else}
-        <Moon size={16} />
-      {/if}
-    </Button>
     <SidebarTrigger />
   </div>
 </header>
