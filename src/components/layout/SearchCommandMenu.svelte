@@ -158,7 +158,7 @@
         {...props}
         aria-label="Open Command Menu"
         title="Open Command Menu (⌘K)"
-        variant="outline"
+        variant="secondary"
         size={iconOnly ? "icon-sm" : "sm"}
         class={cn(
           "group relative group-data-[state=collapsed]:size-8",
@@ -171,7 +171,7 @@
         {#if !iconOnly}
           <span
             class="flex-1 text-left text-xs font-medium group-data-[state=collapsed]:hidden!"
-            >Search tools...</span
+            >Search...</span
           >
           <kbd
             class="group-data-[state=collapsed]:hidden! hidden items-center gap-1 rounded-md border border-border/40 bg-background/50 px-2 py-1 font-mono text-[11px] font-medium text-muted-foreground/70 backdrop-blur-sm sm:inline-flex"
@@ -187,13 +187,17 @@
   </Dialog.Trigger>
   <Dialog.Content
     showCloseButton={false}
-    class="rounded-xl border-none bg-clip-padding p-2 pb-11 shadow-2xl ring-4 ring-neutral-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+		class="rounded-xl border-none bg-clip-padding p-2 pb-11 shadow-2xl ring-4 ring-neutral-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
   >
-    <Command.Root
-      class="**:data-[slot=command-input-wrapper]:bg-input/50 **:data-[slot=command-input-wrapper]:border-input rounded-none bg-transparent **:data-[slot=command-input]:h-9! **:data-[slot=command-input]:py-0 **:data-[slot=command-input-wrapper]:mb-0 **:data-[slot=command-input-wrapper]:h-9! **:data-[slot=command-input-wrapper]:rounded-md **:data-[slot=command-input-wrapper]:border"
-    >
+  <Dialog.Header class="sr-only">
+			<Dialog.Title>Search across application...</Dialog.Title>
+			<Dialog.Description>Search for a command to run...</Dialog.Description>
+		</Dialog.Header>
+    <Command.Root class="rounded-none bg-transparent">
+
       <Command.Input
-        placeholder={`Search tools by name or function in  tools...`}
+        placeholder={`Search anything...`}
+        class="bg-transparent!"
       />
       <Command.List class="scrollbar-hide">
         {#if filteredCommands.length === 0}

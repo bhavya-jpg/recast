@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Badge } from "$components/ui/badge";
   import {
     COLOR_PRESETS,
     GRADIENT_PRESETS,
@@ -7,6 +6,7 @@
     type BackgroundType,
     type EditorStore,
   } from "$lib/stores/editor-store.svelte";
+  import { cn } from "$lib/utils";
   import {
     Blend,
     ImageIcon,
@@ -166,13 +166,9 @@
         />
       </div>
     </div>
-
-    <Badge variant="ghost">
-      {getActiveBackgroundLabel()}
-    </Badge>
   </div>
 
-  <div class="mt-4 grid grid-cols-2 gap-2">
+  <div class="grid grid-cols-2 gap-2">
     {#each backgroundModes as mode}
       {@const Icon = mode.icon}
       <button
@@ -197,11 +193,6 @@
           >
             <Icon size={14} />
           </span>
-          <span
-            class="rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
-          >
-            {mode.available ? "Ready" : "Soon"}
-          </span>
         </div>
 
         <p class="mt-2 text-xs font-semibold text-foreground">{mode.label}</p>
@@ -210,9 +201,7 @@
   </div>
 
   {#if store.backgroundType === "wallpaper"}
-    <section
-      class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm"
-    >
+    <section id="wallpaper-background">
       <div class="mb-3 flex items-center justify-between gap-3">
         <h4 class="text-sm font-semibold text-foreground">Wallpapers</h4>
         <span class="text-[11px] font-medium text-muted-foreground">
@@ -220,15 +209,20 @@
         </span>
       </div>
 
-      <div class="grid grid-cols-4 gap-2">
+      <div class="grid grid-cols-2 gap-2 mx-auto">
         {#each WALLPAPERS as wallpaper}
           <button
             type="button"
             onclick={() => applyBackground("wallpaper", wallpaper.src)}
-            class="group relative aspect-square overflow-hidden rounded-2xl border transition-all duration-200 {store.backgroundValue ===
-            wallpaper.src
-              ? 'border-primary shadow-[0_10px_24px_rgba(59,130,246,0.16)] ring-2 ring-primary/25'
-              : 'border-border/60 hover:border-border hover:shadow-sm'}"
+            class={cn(
+              "group relative aspect-video overflow-hidden rounded-lg h-20 border transition-all duration-200",
+              {
+                "border-primary shadow-[0_10px_24px_rgba(59,130,246,0.16)] ring-2 ring-primary/25":
+                  store.backgroundValue === wallpaper.src,
+                "border-border/60 hover:border-border hover:shadow-sm":
+                  store.backgroundValue !== wallpaper.src,
+              },
+            )}
             title={wallpaper.label}
             aria-label={`Use ${wallpaper.label} background`}
           >
@@ -248,9 +242,7 @@
       </div>
     </section>
   {:else if store.backgroundType === "color"}
-    <section
-      class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm"
-    >
+    <section id="color-background">
       <div class="mb-3 flex items-center gap-2">
         <h4 class="text-sm font-semibold text-foreground">Color Fill</h4>
         <InspectorHint
@@ -258,16 +250,21 @@
         />
       </div>
 
-      <div class="grid grid-cols-6 gap-2">
+      <div class="grid grid-cols-5 gap-2">
         {#each COLOR_PRESETS as color}
           <button
             type="button"
             onclick={() => applyBackground("color", color)}
             aria-label={`Use color ${color}`}
-            class="aspect-square rounded-2xl border-2 transition-all duration-200 {store.backgroundValue ===
-            color
-              ? 'scale-105 border-foreground shadow-md'
-              : 'border-border/30 hover:border-border hover:scale-[1.03]'}"
+            class={cn(
+              "aspect-square rounded-2xl border-2 transition-all duration-200",
+              {
+                "scale-105 border-foreground shadow-md":
+                  store.backgroundValue === color,
+                "border-border/30 hover:border-border hover:scale-[1.03]":
+                  store.backgroundValue !== color,
+              },
+            )}
             style="background-color: {color}"
           ></button>
         {/each}
@@ -304,9 +301,7 @@
       </div>
     </section>
   {:else if store.backgroundType === "gradient"}
-    <section
-      class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm"
-    >
+    <section id="gradient-background">
       <div class="mb-3 flex items-center gap-2">
         <h4 class="text-sm font-semibold text-foreground">Gradients</h4>
         <InspectorHint
@@ -338,9 +333,7 @@
       </div>
     </section>
   {:else}
-    <section
-      class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm"
-    >
+    <section id="image-background">
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <h4 class="text-sm font-semibold text-foreground">
@@ -379,7 +372,7 @@
     </section>
   {/if}
 
-  <section class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm">
+  <section id="finishing">
     <div class="mb-3 flex items-center gap-2">
       <h4 class="text-sm font-semibold text-foreground">Finishing</h4>
       <InspectorHint

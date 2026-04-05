@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
 	import {
-		Activity,
-		Eye,
-		EyeOff,
-		MousePointer,
-		Sparkles,
+	  Activity,
+	  Eye,
+	  EyeOff,
+	  MousePointer,
+	  Sparkles,
 	} from "@lucide/svelte";
 	import InspectorHint from "./InspectorHint.svelte";
 	import SliderControl from "./SliderControl.svelte";
@@ -39,7 +39,7 @@
 </script>
 
 <div class="flex flex-col gap-4 animate-in fade-in duration-300">
-	<section class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm">
+	<section id="cursor-info">
 		<div class="flex items-start justify-between gap-3">
 			<div>
 				<div class="flex items-center gap-2">
@@ -99,7 +99,7 @@
 	</section>
 
 	{#if store.cursorSettings.enabled}
-		<section class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm">
+		<section id="cursor-controls">
 			<div class="mb-3 flex items-center gap-2">
 				<h4 class="text-sm font-semibold text-foreground">Pointer feel</h4>
 				<InspectorHint content="Size changes legibility. Smoothing makes motion feel less jittery." />
@@ -142,7 +142,7 @@
 			</div>
 		</section>
 
-		<section class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm">
+		<section id="click-highlight">
 			<div class="mb-3 flex items-start justify-between gap-3">
 				<div class="flex items-center gap-2">
 					<h4 class="text-sm font-semibold text-foreground">Click highlight</h4>
@@ -217,7 +217,7 @@
 			{/if}
 		</section>
 
-		<section class="rounded-3xl border border-border/70 bg-card/80 p-4 shadow-sm">
+		<section id="idle-behavior">
 			<div class="mb-3 flex items-start justify-between gap-3">
 				<div class="flex items-center gap-2">
 					<h4 class="text-sm font-semibold text-foreground">Idle behavior</h4>
@@ -263,7 +263,7 @@
 			{/if}
 		</section>
 	{:else}
-		<section class="rounded-3xl border border-dashed border-border/70 bg-card/70 p-5 shadow-sm">
+		<section id="cursor-hidden">
 			<div class="flex items-start gap-3">
 				<div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-muted/80 text-muted-foreground">
 					<EyeOff size={18} />

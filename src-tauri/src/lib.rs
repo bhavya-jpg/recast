@@ -113,6 +113,25 @@ struct AppState {
     config: Mutex<AppConfig>,
 }
 
+fn run_preview_ffmpeg(args: &[String]) -> Result<String, String> {
+    let output = Command::new("ffmpeg")
+        .args(args)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err(format!(
+            "preview render failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(output.stdout)
+    ))
+}
+
 fn config_path(app: &AppHandle) -> PathBuf {
     app.path()
         .app_data_dir()
@@ -387,22 +406,29 @@ fn render_preview_frame(request: PreviewFrameRequest) -> Result<String, String> 
         "-".to_string(),
     ]);
 
-    let output = Command::new("ffmpeg")
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "preview render failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+    match run_preview_ffmpeg(&args) {
+        Ok(frame) => Ok(frame),
+        Err(_) => {
+            let fallback_args = vec![
+                "-v".to_string(),
+                "error".to_string(),
+                "-ss".to_string(),
+                format!("{:.3}", request.time.max(0.0)),
+                "-i".to_string(),
+                source_video.to_string_lossy().to_string(),
+                "-frames:v".to_string(),
+                "1".to_string(),
+                "-vf".to_string(),
+                "scale=1280:-1:flags=lanczos".to_string(),
+                "-f".to_string(),
+                "image2pipe".to_string(),
+                "-vcodec".to_string(),
+                "png".to_string(),
+                "-".to_string(),
+            ];
+            run_preview_ffmpeg(&fallback_args)
+        }
     }
-
-    Ok(format!(
-        "data:image/png;base64,{}",
-        general_purpose::STANDARD.encode(output.stdout)
-    ))
 }
 
 #[tauri::command]
@@ -631,6 +657,8 @@ fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, String> 
     let _ = fs::create_dir_all(&temp_dir);
     let mut thumbnails = Vec::new();
 
+    let scale_width = if count <= 2 { 480 } else { 240 };
+
     for index in 0..count {
         let timestamp = index as f64 * interval;
         let thumb_path = temp_dir.join(format!("thumb-{index}.jpg"));
@@ -644,9 +672,9 @@ fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, String> 
                 "-vframes",
                 "1",
                 "-vf",
-                "scale=160:-1",
+                &format!("scale={scale_width}:-1"),
                 "-q:v",
-                "8",
+                "4",
                 thumb_path.to_string_lossy().as_ref(),
             ])
             .output();

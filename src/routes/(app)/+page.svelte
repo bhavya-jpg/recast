@@ -1,14 +1,15 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
+    import { Button } from "$components/ui/button";
     import { isTauriApp } from "$lib/runtime/tauri";
     import {
-        Clock3,
-        ExternalLink,
-        FolderOpen,
-        Pencil,
-        Play,
-        RefreshCw,
-        Video,
+      Clock3,
+      ExternalLink,
+      FolderOpen,
+      Pencil,
+      Play,
+      RefreshCw,
+      Video,
     } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
@@ -138,7 +139,7 @@
     }
 </script>
 
-<div class="mx-auto flex w-full flex-1 flex-col p-10">
+<div class="mx-auto flex w-full max-w-400 flex-1 flex-col px-6 py-8 sm:px-8 xl:px-10">
     <div class="mb-8 flex items-end justify-between gap-4">
         <div>
             <h2 class="text-3xl font-semibold tracking-tight text-foreground">
@@ -152,11 +153,13 @@
             </p>
         </div>
 
-        <button
+        <Button
             onclick={fetchRecordings}
             disabled={isFetching}
-            class="group flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-accent hover:text-foreground disabled:opacity-50"
+            class="group"
             title="Refresh"
+            size="icon"
+            variant="outline"
         >
             <RefreshCw
                 size={16}
@@ -164,7 +167,7 @@
                     ? "animate-spin"
                     : "transition-transform group-hover:scale-110"}
             />
-        </button>
+        </Button>
     </div>
 
     {#if isFetching}
@@ -197,11 +200,11 @@
             </div>
         </div>
     {:else}
-        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
             {#each recordings as item, i}
                 {@const thumbnail = thumbnails[item.path]}
                 <article
-                    class="group animate-in slide-in-from-bottom-4 fade-in relative overflow-hidden rounded-3xl border border-border/80 bg-card shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-xl"
+                    class="group animate-in slide-in-from-bottom-4 fade-in relative overflow-hidden rounded-[28px] border border-border/80 bg-card shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-xl"
                     style="animation-delay: {i * 45}ms;"
                 >
                     <button
@@ -210,13 +213,13 @@
                         class="block w-full text-left"
                     >
                         <div
-                            class="relative aspect-video overflow-hidden border-b border-border/70 bg-gradient-to-br from-muted via-muted/80 to-card"
+                            class="relative aspect-[16/9] overflow-hidden border-b border-border/70 bg-gradient-to-br from-muted via-muted/80 to-card"
                         >
                             {#if thumbnail}
                                 <img
                                     src={thumbnail}
                                     alt={item.filename}
-                                    class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                                    class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.025]"
                                     loading="lazy"
                                     draggable="false"
                                 />
@@ -229,7 +232,7 @@
                                 </div>
                             {/if}
 
-                            <div class="absolute inset-x-0 top-0 flex items-start justify-between p-3">
+                            <div class="absolute inset-x-0 top-0 flex items-start justify-between p-4">
                                 <span class="rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-white/80 backdrop-blur">
                                     {getFileTypeLabel(item.filename)}
                                 </span>
@@ -238,7 +241,7 @@
                                 </span>
                             </div>
 
-                            <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-4">
+                            <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/72 via-black/24 to-transparent p-5">
                                 <div class="flex items-center gap-2 text-white/80">
                                     <div class="flex h-9 w-9 items-center justify-center rounded-full bg-white/14 backdrop-blur">
                                         <Pencil size={16} />
@@ -256,12 +259,9 @@
                         </div>
                     </button>
 
-                    <div class="space-y-4 p-4">
+                    <div class="space-y-4 p-5">
                         <div class="min-w-0">
-                            <h3
-                                class="truncate text-sm font-semibold text-foreground"
-                                title={item.filename}
-                            >
+                            <h3 class="line-clamp-1 text-base font-semibold tracking-tight text-foreground" title={item.filename}>
                                 {item.filename}
                             </h3>
                             <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -280,7 +280,7 @@
                             <button
                                 type="button"
                                 onclick={() => navigateToEditor(item.path, item.filename)}
-                                class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90"
+                                class="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90"
                             >
                                 <Pencil size={15} />
                                 Edit
