@@ -8,7 +8,7 @@
 
   import { Button } from "$components/ui/button";
   import { Hexagon, LayoutDashboard, Radio, Settings } from "@lucide/svelte";
-  import { onMount } from "svelte";
+  import { onMount, type ComponentProps } from "svelte";
   // Derived state for reactivity
   let currentPath = $derived(page.url.pathname);
   let isTauri = $state(false);
@@ -41,7 +41,7 @@
 
     const panelWin = new WebviewWindow("recording-panel", {
       url: "/panel",
-      title: "Trace Panel",
+      title: "Recast Panel",
       width: 380,
       height: 50,
       decorations: false,
@@ -81,7 +81,7 @@
             class="text-base font-semibold tracking-tight group-data-[state=collapsed]:hidden"
             data-tauri-drag-region
           >
-            Trace Studio
+            Recast Studio
           </h1>
         </a>
       </div>

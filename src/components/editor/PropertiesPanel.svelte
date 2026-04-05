@@ -1,22 +1,14 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
-	import {
-		AudioLines,
-		ImageIcon,
-		MousePointer,
-		Stamp,
-	} from "@lucide/svelte";
-	import AudioPanel from "./AudioPanel.svelte";
+	import { ImageIcon, MousePointer } from "@lucide/svelte";
 	import BackgroundPicker from "./BackgroundPicker.svelte";
 	import CursorPanel from "./CursorPanel.svelte";
-	import InspectorHint from "./InspectorHint.svelte";
-	import WatermarkPanel from "./WatermarkPanel.svelte";
 
 	interface Props {
 		store: EditorStore;
 	}
 
-	type PanelTab = "background" | "cursor" | "audio" | "watermark";
+	type PanelTab = "background" | "cursor";
 
 	type PanelDefinition = {
 		id: PanelTab;
@@ -37,18 +29,6 @@
 			label: "Cursor",
 			hint: "Pointer visibility and emphasis controls for playback.",
 			icon: MousePointer,
-		},
-		{
-			id: "audio",
-			label: "Audio",
-			hint: "Playback volume plus export fades.",
-			icon: AudioLines,
-		},
-		{
-			id: "watermark",
-			label: "Watermark",
-			hint: "Overlay image, position, opacity, and size.",
-			icon: Stamp,
 		},
 	];
 
@@ -83,28 +63,11 @@
 	class="flex h-full flex-col border-l border-border/80 bg-linear-to-b from-card via-card/95 to-background/95 backdrop-blur-sm"
 >
 	<div class="shrink-0 border-b border-border/70 px-4 pb-3 pt-4">
-		<div class="flex items-start justify-between gap-3">
-			<div class="min-w-0">
-				<div class="flex items-center gap-2">
-					<p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
-						Inspector
-					</p>
-					<InspectorHint content={activePanel.hint} />
-				</div>
-				<h2 class="mt-1 text-base font-semibold text-foreground">
-					{activePanel.label}
-				</h2>
-			</div>
-
-			<div class="rounded-2xl border border-border/70 bg-background/80 px-3 py-2 text-right shadow-sm">
-				<p class="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Clip</p>
-				<p class="mt-1 text-xs font-semibold text-foreground">
-					{formatDuration(store.metadata?.duration)}
-				</p>
-			</div>
-		</div>
 
 		<div class="mt-3 flex items-center gap-2">
+			<div class="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-foreground">
+					{formatDuration(store.metadata?.duration)}
+			</div>
 			<div class="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-foreground">
 				{formatResolution()}
 			</div>
@@ -113,7 +76,7 @@
 			</div>
 		</div>
 
-		<div class="mt-3 grid grid-cols-4 gap-2">
+		<div class="mt-3 grid grid-cols-2 gap-2">
 			{#each tabs as tab}
 				{@const Icon = tab.icon}
 				<button
@@ -146,12 +109,8 @@
 	<div class="custom-scrollbar flex-1 overflow-y-auto px-4 py-4">
 		{#if activeTab === "background"}
 			<BackgroundPicker {store} />
-		{:else if activeTab === "cursor"}
-			<CursorPanel {store} />
-		{:else if activeTab === "audio"}
-			<AudioPanel {store} />
 		{:else}
-			<WatermarkPanel {store} />
+			<CursorPanel {store} />
 		{/if}
 	</div>
 </div>

@@ -5,6 +5,7 @@
 	import PropertiesPanel from "$components/editor/PropertiesPanel.svelte";
 	import Timeline from "$components/editor/Timeline.svelte";
 	import VideoPreview from "$components/editor/VideoPreview.svelte";
+	import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
 	import { createEditorStore } from "$lib/stores/editor-store.svelte";
 	import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 	import { tick } from "svelte";
@@ -16,20 +17,33 @@
 		};
 	}
 
+	interface EditorDocument {
+		projectPath: string;
+		mediaPath: string;
+		cursorPath?: string | null;
+		editsPath?: string | null;
+		metadata: VideoMetadata;
+		renderState: EditorRenderState;
+	}
+
 	let { data }: Props = $props();
 
 	const store = createEditorStore();
 
 	let videoEl: HTMLVideoElement | null = $state(null);
 	let videoSrc = $state("");
+	let documentPath = $state("");
+	let mediaPath = $state("");
+	let previewSrc = $state("");
 	let isLoading = $state(true);
+	let isRenderingPreview = $state(false);
 	let error = $state("");
 	let loadedPath = $state("");
+	let previewToken = 0;
+	let lastPreviewKey = "";
 
-	// Sync video time → store
 	function handleTimeUpdate() {
-		if (videoEl && !store.isPlaying) return;
-		if (videoEl) {
+		if (videoEl && store.isPlaying) {
 			store.currentTime = videoEl.currentTime;
 		}
 	}
@@ -38,14 +52,7 @@
 		store.isPlaying = false;
 	}
 
-	function mergeVideoMetadata(next: {
-		duration?: number;
-		width?: number;
-		height?: number;
-		fps?: number;
-		codec?: string;
-		sizeBytes?: number;
-	}) {
+	function mergeVideoMetadata(next: Partial<VideoMetadata>) {
 		store.metadata = {
 			duration: next.duration ?? store.metadata?.duration ?? 0,
 			width: next.width ?? store.metadata?.width ?? 0,
@@ -55,7 +62,39 @@
 			sizeBytes: next.sizeBytes ?? store.metadata?.sizeBytes ?? 0,
 		};
 		if (store.trimEnd <= 0 && store.metadata.duration > 0) {
-			store.trimEnd = store.metadata.duration;
+			store.loadRenderState({ trimEnd: store.metadata.duration });
+		}
+	}
+
+	async function renderPreview(force = false) {
+		if (!documentPath) return;
+		const previewTime = store.isPlaying
+			? Math.round(store.currentTime * 8) / 8
+			: store.currentTime;
+		const renderState = store.toRenderState();
+		const previewKey = `${documentPath}|${previewTime.toFixed(3)}|${JSON.stringify(renderState)}`;
+		if (!force && previewKey === lastPreviewKey) return;
+		lastPreviewKey = previewKey;
+		const token = ++previewToken;
+		isRenderingPreview = true;
+
+		try {
+			const frame = await invoke<string>("render_preview_frame", {
+				request: {
+					inputPath: documentPath,
+					time: previewTime,
+					renderState,
+				},
+			});
+			if (token === previewToken) {
+				previewSrc = frame;
+			}
+		} catch (err) {
+			console.error("Preview render failed", err);
+		} finally {
+			if (token === previewToken) {
+				isRenderingPreview = false;
+			}
 		}
 	}
 
@@ -65,72 +104,49 @@
 			duration: videoEl.duration,
 			width: videoEl.videoWidth,
 			height: videoEl.videoHeight,
-			fps: 30, // default, will be overridden by Rust metadata
-			codec: "h264",
-			sizeBytes: 0,
 		});
 	}
 
 	function handleVideoReady() {
 		handleVideoLoadedMetadata();
 		isLoading = false;
+		void renderPreview(true);
 	}
 
 	function handleVideoError() {
 		const code = videoEl?.error?.code;
-		console.error("Video failed to load", {
-			path: data.filePath,
-			src: videoSrc,
-			code,
-		});
 		error = code
-			? `Failed to load video (media error ${code}).`
-			: "Failed to load video.";
+			? `Failed to load source media (media error ${code}).`
+			: "Failed to load source media.";
 		isLoading = false;
 	}
 
-	async function loadVideo() {
+	async function loadDocument() {
 		error = "";
 		isLoading = true;
+		previewSrc = "";
 		videoSrc = "";
 		videoEl?.pause();
 		store.metadata = null;
 		store.reset();
 
 		try {
-			// Convert local file path to asset protocol URL for Tauri
-			videoSrc = convertFileSrc(data.filePath);
+			const document = await invoke<EditorDocument>("load_editor_document", {
+				path: data.filePath,
+			});
+
+			documentPath = document.projectPath;
+			mediaPath = document.mediaPath;
+			store.videoPath = document.projectPath;
+			store.metadata = document.metadata;
+			store.loadRenderState(document.renderState);
+
+			videoSrc = convertFileSrc(document.mediaPath);
 			await tick();
 			videoEl?.load();
-
-			// Also try to get metadata from Rust
-			try {
-				const meta = await invoke<{
-					duration: number;
-					width: number;
-					height: number;
-					fps: number;
-					codec: string;
-					size_bytes: number;
-				}>("get_video_metadata", { path: data.filePath });
-
-				mergeVideoMetadata({
-					duration: meta.duration,
-					width: meta.width,
-					height: meta.height,
-					fps: meta.fps,
-					codec: meta.codec,
-					sizeBytes: meta.size_bytes,
-				});
-			} catch {
-				// Fallback to HTML5 video metadata
-				console.warn(
-					"Could not get Rust video metadata, using HTML5 fallback",
-				);
-			}
-		} catch (e) {
-			console.error("Failed to load video:", e);
-			error = `Could not load video: ${e}`;
+		} catch (err) {
+			console.error("Failed to load editor document", err);
+			error = `Could not load project: ${err}`;
 			isLoading = false;
 		}
 	}
@@ -142,22 +158,16 @@
 
 		try {
 			const result = await invoke<string>("export_video", {
-				inputPath: data.filePath,
-				format: store.exportFormat,
-				trimStart: store.trimStart,
-				trimEnd: store.trimEnd,
-				backgroundType: store.backgroundType,
-				backgroundValue: store.backgroundValue,
-				backgroundBlur: store.backgroundBlur,
-				padding: store.padding,
-				audioSettings: store.audioSettings,
-				watermarkSettings: store.watermarkSettings,
+				request: {
+					inputPath: documentPath || data.filePath,
+					format: store.exportFormat,
+					renderState: store.toRenderState(),
+				},
 			});
 			console.log("Export complete:", result);
-			// Could show a toast here
-		} catch (e) {
-			console.error("Export failed:", e);
-			alert(`Export failed: ${e}`);
+		} catch (err) {
+			console.error("Export failed:", err);
+			alert(`Export failed: ${err}`);
 		} finally {
 			store.isExporting = false;
 			store.exportProgress = null;
@@ -168,35 +178,31 @@
 		goto("/");
 	}
 
-	// Keyboard shortcuts
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.defaultPrevented) return;
 		if (
 			e.target instanceof HTMLInputElement ||
 			e.target instanceof HTMLTextAreaElement
-		)
+		) {
 			return;
+		}
 
 		switch (e.key) {
 			case " ":
 				e.preventDefault();
-				if (videoEl) {
-					if (store.isPlaying) {
-						videoEl.pause();
-						store.isPlaying = false;
-					} else {
-						videoEl.play();
-						store.isPlaying = true;
-					}
+				if (!videoEl) return;
+				if (store.isPlaying) {
+					videoEl.pause();
+					store.isPlaying = false;
+				} else {
+					videoEl.play();
+					store.isPlaying = true;
 				}
 				break;
 			case "ArrowLeft":
 				if (videoEl && store.metadata) {
 					const frameDur = 1 / (store.metadata.fps || 30);
-					videoEl.currentTime = Math.max(
-						0,
-						videoEl.currentTime - frameDur,
-					);
+					videoEl.currentTime = Math.max(0, videoEl.currentTime - frameDur);
 					store.currentTime = videoEl.currentTime;
 				}
 				break;
@@ -226,26 +232,23 @@
 	$effect(() => {
 		if (!data.filePath || data.filePath === loadedPath) return;
 		loadedPath = data.filePath;
-		store.videoPath = data.filePath;
-		void loadVideo();
+		void loadDocument();
+	});
+
+	$effect(() => {
+		if (!documentPath || isLoading || error) return;
+		void renderPreview();
 	});
 
 	$effect(() => {
 		if (!videoEl) return;
-		videoEl.muted = store.audioSettings.muted;
-		videoEl.volume = Math.min(
-			1,
-			Math.max(0, store.audioSettings.volume / 100),
-		);
+		videoEl.muted = true;
 	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div
-	class="flex min-h-screen w-full flex-col overflow-hidden bg-background text-foreground"
->
-	<!-- Toolbar -->
+<div class="flex min-h-screen w-full flex-col overflow-hidden bg-background text-foreground">
 	<EditorToolbar
 		{store}
 		filename={data.filename}
@@ -253,61 +256,42 @@
 		onexport={handleExport}
 	/>
 
-	<!-- Main content -->
 	<div class="flex flex-1 overflow-hidden">
-		<!-- Left: Preview area -->
 		<div class="flex flex-1 flex-col overflow-hidden">
-			<!-- Video Preview -->
 			<div class="flex flex-1 items-center justify-center p-6 pb-2">
 				{#if isLoading}
-					<div
-						class="flex flex-col items-center gap-4 animate-in fade-in duration-500"
-					>
-						<div
-							class="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
-						></div>
-						<p class="text-sm text-muted-foreground">
-							Loading video…
-						</p>
+					<div class="flex flex-col items-center gap-4 animate-in fade-in duration-500">
+						<div class="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+						<p class="text-sm text-muted-foreground">Loading project…</p>
 					</div>
 				{:else if error}
-					<div
-						class="flex flex-col items-center gap-4 text-center animate-in fade-in duration-500"
-					>
-						<div
-							class="flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10 text-destructive"
-						>
+					<div class="flex flex-col items-center gap-4 text-center animate-in fade-in duration-500">
+						<div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
 							<span class="text-2xl">⚠</span>
 						</div>
-						<p class="text-sm text-muted-foreground max-w-sm">
-							{error}
-						</p>
-						<button
-							onclick={handleBack}
-							class="text-sm text-primary hover:underline"
-						>
+						<p class="max-w-sm text-sm text-muted-foreground">{error}</p>
+						<button onclick={handleBack} class="text-sm text-primary hover:underline">
 							← Back to recordings
 						</button>
 					</div>
 				{:else}
-					<VideoPreview {store} bind:videoEl />
+					<VideoPreview
+						{store}
+						previewSrc={previewSrc}
+						isRendering={isRenderingPreview}
+					/>
 				{/if}
 			</div>
 
-			<!-- Playback Controls -->
 			<PlaybackControls {store} {videoEl} />
-
-			<!-- Timeline -->
 			<Timeline {store} {videoEl} />
 		</div>
 
-		<!-- Right: Properties Panel -->
 		<div class="w-96 shrink-0">
 			<PropertiesPanel {store} />
 		</div>
 	</div>
 
-	<!-- Hidden video element -->
 	{#if videoSrc}
 		<!-- svelte-ignore a11y_media_has_caption -->
 		<video
@@ -319,38 +303,26 @@
 			onloadeddata={handleVideoReady}
 			oncanplay={handleVideoReady}
 			onerror={handleVideoError}
-			class="absolute opacity-0 pointer-events-none -z-10"
+			class="pointer-events-none absolute -z-10 opacity-0"
 			playsinline
 			preload="auto"
 		></video>
 	{/if}
 
-	<!-- Export progress overlay -->
 	{#if store.isExporting}
-		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
-		>
-			<div
-				class="flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-8 shadow-2xl animate-in zoom-in-95 duration-300"
-			>
-				<div
-					class="h-10 w-10 animate-spin rounded-full border-3 border-primary border-t-transparent"
-				></div>
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+			<div class="flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+				<div class="h-10 w-10 animate-spin rounded-full border-3 border-primary border-t-transparent"></div>
 				<div class="text-center">
-					<p class="text-sm font-semibold text-foreground">
-						Exporting video…
-					</p>
+					<p class="text-sm font-semibold text-foreground">Exporting video…</p>
 					<p class="mt-1 text-xs text-muted-foreground">
-						{store.exportFormat.toUpperCase()} • {store.exportProgress !==
-						null
+						{store.exportFormat.toUpperCase()} • {store.exportProgress !== null
 							? `${Math.round(store.exportProgress)}%`
 							: "Preparing…"}
 					</p>
 				</div>
 				{#if store.exportProgress !== null}
-					<div
-						class="h-1.5 w-48 overflow-hidden rounded-full bg-muted"
-					>
+					<div class="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
 						<div
 							class="h-full rounded-full bg-linear-to-r from-primary to-blue-400 transition-[width] duration-300"
 							style="width: {store.exportProgress}%"

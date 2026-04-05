@@ -29,7 +29,7 @@
     if (storedTheme) {
       currentTheme = storedTheme;
     }
-    const storedEditorBehavior = localStorage.getItem("trace-editor-window");
+    const storedEditorBehavior = localStorage.getItem("recast-editor-window");
     if (storedEditorBehavior === "new-window") {
       editorWindow = "new-window";
     }
@@ -74,7 +74,7 @@
   <div class="mb-10 border-b pb-6">
     <h2 class="text-2xl font-bold tracking-tight text-foreground">Settings</h2>
     <p class="text-sm text-muted-foreground mt-1">
-      Configure Trace defaults and preferences.
+      Configure Recast defaults and preferences.
     </p>
   </div>
 
@@ -90,7 +90,7 @@
         <CardHeader>
           <Label for="output-dir">Output Directory</Label>
           <CardDescription>
-            Choose the folder where your Trace recordings are saved.
+            Choose the folder where your Recast recordings are saved.
           </CardDescription>
         </CardHeader>
         <CardContent class="flex flex-col gap-2">
@@ -183,7 +183,7 @@
               class="flex-1 flex gap-2"
               onclick={() => {
                 editorWindow = "navigate";
-                localStorage.setItem("trace-editor-window", "navigate");
+                localStorage.setItem("recast-editor-window", "navigate");
               }}
             >
               <Navigation size={16} />
@@ -196,7 +196,7 @@
               class="flex-1 flex gap-2"
               onclick={() => {
                 editorWindow = "new-window";
-                localStorage.setItem("trace-editor-window", "new-window");
+                localStorage.setItem("recast-editor-window", "new-window");
               }}
             >
               <ExternalLink size={16} />
@@ -217,7 +217,7 @@
       <Card
       >
         <CardHeader>
-          <CardTitle>Trace MVP</CardTitle>
+          <CardTitle>Recast</CardTitle>
           <CardDescription>Version 0.0.1</CardDescription>
         </CardHeader>
         <CardContent>

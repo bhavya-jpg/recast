@@ -1,15 +1,25 @@
-use std::io::{Cursor, Write};
-use std::sync::Mutex;
-use std::process::{Command, Child, Stdio};
+mod project;
+mod recording;
+mod render;
+
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
-use serde::{Deserialize, Serialize};
-use xcap::{Monitor, Window};
-use image::codecs::png::PngEncoder;
-use image::{ImageEncoder, ColorType};
+use std::process::Command;
+
 use base64::{Engine as _, engine::general_purpose};
+use image::codecs::png::PngEncoder;
+use image::{ColorType, ImageEncoder};
+use parking_lot::Mutex;
+use project::ProjectMetadata;
+use project::reader::ProjectOpenResult;
+use project::writer::{ProjectWriteRequest, write_project};
+use recording::{CaptureTarget, RecordingManager};
+use render::graph::{RenderGraph, RenderState, SourceVideoMetadata};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, State};
+use xcap::{Monitor, Window};
 
 const THUMBNAIL_WIDTH: u32 = 320;
 const THUMBNAIL_HEIGHT: u32 = 180;
@@ -48,6 +58,28 @@ pub struct RecordingEntry {
     created: u64,
 }
 
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoMetadata {
+    duration: f64,
+    width: u32,
+    height: u32,
+    fps: f64,
+    codec: String,
+    size_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EditorDocument {
+    project_path: String,
+    media_path: String,
+    cursor_path: Option<String>,
+    edits_path: Option<String>,
+    metadata: VideoMetadata,
+    render_state: RenderState,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct AppConfig {
     output_dir: Option<String>,
@@ -59,14 +91,33 @@ impl Default for AppConfig {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportRequest {
+    input_path: String,
+    format: String,
+    render_state: RenderState,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewFrameRequest {
+    input_path: String,
+    time: f64,
+    render_state: RenderState,
+}
+
 struct AppState {
-    recording_process: Mutex<Option<Child>>,
+    recording_manager: RecordingManager,
     last_file_path: Mutex<Option<String>>,
     config: Mutex<AppConfig>,
 }
 
 fn config_path(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().unwrap_or_else(|_| env::temp_dir()).join("trace_config.json")
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| env::temp_dir())
+        .join("recast_config.json")
 }
 
 fn load_config(app: &AppHandle) -> AppConfig {
@@ -90,24 +141,50 @@ fn save_config(app: &AppHandle, config: &AppConfig) {
 }
 
 fn get_active_output_dir(state: &State<'_, AppState>) -> PathBuf {
-    let config = state.config.lock().unwrap();
-    if let Some(ref dir) = config.output_dir {
+    let config = state.config.lock();
+    if let Some(dir) = &config.output_dir {
         PathBuf::from(dir)
     } else {
         env::temp_dir()
     }
 }
 
+fn static_root() -> PathBuf {
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let candidate = cwd.join("..").join("static");
+    if candidate.exists() {
+        candidate
+    } else {
+        cwd.join("static")
+    }
+}
+
 fn make_thumbnail(img: &image::RgbaImage) -> image::RgbaImage {
     let (w, h) = (img.width(), img.height());
     if w == 0 || h == 0 {
-        return image::RgbaImage::from_pixel(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, image::Rgba([0, 0, 0, 255]));
+        return image::RgbaImage::from_pixel(
+            THUMBNAIL_WIDTH,
+            THUMBNAIL_HEIGHT,
+            image::Rgba([0, 0, 0, 255]),
+        );
     }
-    let scale = (THUMBNAIL_WIDTH as f32 / w as f32).min(THUMBNAIL_HEIGHT as f32 / h as f32).max(f32::MIN_POSITIVE);
-    let scaled_w = (w as f32 * scale).round().clamp(1.0, THUMBNAIL_WIDTH as f32) as u32;
-    let scaled_h = (h as f32 * scale).round().clamp(1.0, THUMBNAIL_HEIGHT as f32) as u32;
-    let resized = image::imageops::resize(img, scaled_w, scaled_h, image::imageops::FilterType::Triangle);
-    let mut canvas = image::RgbaImage::from_pixel(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, image::Rgba([18, 18, 20, 255]));
+
+    let scale = (THUMBNAIL_WIDTH as f32 / w as f32)
+        .min(THUMBNAIL_HEIGHT as f32 / h as f32)
+        .max(f32::MIN_POSITIVE);
+    let scaled_w = (w as f32 * scale)
+        .round()
+        .clamp(1.0, THUMBNAIL_WIDTH as f32) as u32;
+    let scaled_h = (h as f32 * scale)
+        .round()
+        .clamp(1.0, THUMBNAIL_HEIGHT as f32) as u32;
+    let resized =
+        image::imageops::resize(img, scaled_w, scaled_h, image::imageops::FilterType::Triangle);
+    let mut canvas = image::RgbaImage::from_pixel(
+        THUMBNAIL_WIDTH,
+        THUMBNAIL_HEIGHT,
+        image::Rgba([18, 18, 20, 255]),
+    );
     let ox = (THUMBNAIL_WIDTH - scaled_w) / 2;
     let oy = (THUMBNAIL_HEIGHT - scaled_h) / 2;
     image::imageops::overlay(&mut canvas, &resized, ox as i64, oy as i64);
@@ -117,19 +194,215 @@ fn make_thumbnail(img: &image::RgbaImage) -> image::RgbaImage {
 fn encode_thumbnail_base64(img: &image::RgbaImage) -> Option<String> {
     let mut buf = Cursor::new(Vec::new());
     let enc = PngEncoder::new(&mut buf);
-    enc.write_image(img.as_raw(), img.width(), img.height(), ColorType::Rgba8.into()).ok()?;
+    enc.write_image(img.as_raw(), img.width(), img.height(), ColorType::Rgba8.into())
+        .ok()?;
     let b64 = general_purpose::STANDARD.encode(buf.into_inner());
-    Some(format!("data:image/png;base64,{}", b64))
+    Some(format!("data:image/png;base64,{b64}"))
 }
 
-fn capture_monitor_thumbnail(m: &Monitor) -> Option<String> {
-    let shot = m.capture_image().ok()?;
+fn capture_monitor_thumbnail(monitor: &Monitor) -> Option<String> {
+    let shot = monitor.capture_image().ok()?;
     encode_thumbnail_base64(&make_thumbnail(&shot))
 }
 
-fn capture_window_thumbnail(w: &Window) -> Option<String> {
-    let shot = w.capture_image().ok()?;
+fn capture_window_thumbnail(window: &Window) -> Option<String> {
+    let shot = window.capture_image().ok()?;
     encode_thumbnail_base64(&make_thumbnail(&shot))
+}
+
+fn project_or_media_metadata(path: &Path) -> Result<VideoMetadata, String> {
+    if path.extension().and_then(|value| value.to_str()) == Some("recast") {
+        let project = project::reader::open_project(path).map_err(|e| e.to_string())?;
+        return Ok(VideoMetadata {
+            duration: project.metadata.video.duration_ms as f64 / 1000.0,
+            width: project.metadata.video.width,
+            height: project.metadata.video.height,
+            fps: project.metadata.video.fps as f64,
+            codec: "h264".into(),
+            size_bytes: fs::metadata(path).map(|m| m.len()).unwrap_or_default(),
+        });
+    }
+    probe_video_metadata(path)
+}
+
+fn probe_video_metadata(path: &Path) -> Result<VideoMetadata, String> {
+    if !path.exists() {
+        return Err("File not found".into());
+    }
+
+    let size_bytes = fs::metadata(path).map(|m| m.len()).unwrap_or_default();
+    let path_string = path.to_string_lossy().to_string();
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            &path_string,
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let parsed: serde_json::Value =
+                serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+            let duration = parsed["format"]["duration"]
+                .as_str()
+                .and_then(|value| value.parse::<f64>().ok())
+                .unwrap_or_default();
+            let video_stream = parsed["streams"]
+                .as_array()
+                .and_then(|streams| streams.iter().find(|stream| stream["codec_type"].as_str() == Some("video")));
+
+            let (width, height, fps, codec) = if let Some(stream) = video_stream {
+                let fps_text = stream["r_frame_rate"].as_str().unwrap_or("30/1");
+                let fps = if let Some((num, den)) = fps_text.split_once('/') {
+                    let num = num.parse::<f64>().unwrap_or(30.0);
+                    let den = den.parse::<f64>().unwrap_or(1.0);
+                    if den > 0.0 { num / den } else { 30.0 }
+                } else {
+                    fps_text.parse::<f64>().unwrap_or(30.0)
+                };
+
+                (
+                    stream["width"].as_u64().unwrap_or_default() as u32,
+                    stream["height"].as_u64().unwrap_or_default() as u32,
+                    fps,
+                    stream["codec_name"].as_str().unwrap_or("unknown").to_string(),
+                )
+            } else {
+                (0, 0, 30.0, "unknown".into())
+            };
+
+            Ok(VideoMetadata {
+                duration,
+                width,
+                height,
+                fps,
+                codec,
+                size_bytes,
+            })
+        }
+        _ => Ok(VideoMetadata {
+            duration: 0.0,
+            width: 0,
+            height: 0,
+            fps: 30.0,
+            codec: "unknown".into(),
+            size_bytes,
+        }),
+    }
+}
+
+fn has_audio(path: &Path) -> bool {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            &path.to_string_lossy(),
+        ])
+        .output();
+
+    matches!(
+        output,
+        Ok(result) if result.status.success() && !String::from_utf8_lossy(&result.stdout).trim().is_empty()
+    )
+}
+
+fn open_project_if_needed(path: &Path) -> Result<Option<ProjectOpenResult>, String> {
+    if path.extension().and_then(|value| value.to_str()) == Some("recast") {
+        project::reader::open_project(path)
+            .map(Some)
+            .map_err(|e| e.to_string())
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn render_preview_frame(request: PreviewFrameRequest) -> Result<String, String> {
+    let input_path = PathBuf::from(&request.input_path);
+    let project = open_project_if_needed(&input_path)?;
+    let source_video = project
+        .as_ref()
+        .map(|value| value.recording_path.clone())
+        .unwrap_or(input_path);
+    let metadata = probe_video_metadata(&source_video)?;
+    let graph = RenderGraph::from_state(&request.render_state);
+    let export_plan = graph
+        .build_export_plan(
+            SourceVideoMetadata {
+                width: metadata.width,
+                height: metadata.height,
+            },
+            &static_root(),
+            1,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut args = vec![
+        "-v".to_string(),
+        "error".to_string(),
+        "-ss".to_string(),
+        format!("{:.3}", request.time.max(0.0)),
+        "-i".to_string(),
+        source_video.to_string_lossy().to_string(),
+    ];
+
+    for input in &export_plan.extra_inputs {
+        args.extend([
+            "-loop".to_string(),
+            "1".to_string(),
+            "-i".to_string(),
+            input.to_string_lossy().to_string(),
+        ]);
+    }
+
+    if let Some(filter_complex) = &export_plan.filter_complex {
+        args.extend([
+            "-filter_complex".to_string(),
+            filter_complex.clone(),
+            "-map".to_string(),
+            export_plan.video_map.clone(),
+        ]);
+    } else {
+        args.extend(["-map".to_string(), "0:v:0".to_string()]);
+    }
+
+    args.extend([
+        "-frames:v".to_string(),
+        "1".to_string(),
+        "-f".to_string(),
+        "image2pipe".to_string(),
+        "-vcodec".to_string(),
+        "png".to_string(),
+        "-".to_string(),
+    ]);
+
+    let output = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "preview render failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(output.stdout)
+    ))
 }
 
 #[tauri::command]
@@ -142,7 +415,7 @@ fn set_output_dir(app: AppHandle, state: State<'_, AppState>, path: String) -> R
     if !Path::new(&path).exists() {
         return Err("Directory does not exist".into());
     }
-    let mut config = state.config.lock().unwrap();
+    let mut config = state.config.lock();
     config.output_dir = Some(path);
     save_config(&app, &config);
     Ok(())
@@ -151,125 +424,100 @@ fn set_output_dir(app: AppHandle, state: State<'_, AppState>, path: String) -> R
 #[tauri::command]
 fn get_displays() -> Result<Vec<DisplayInfo>, String> {
     let monitors = Monitor::all().map_err(|e| e.to_string())?;
-    Ok(monitors.iter().map(|m| {
-        let thumbnail = capture_monitor_thumbnail(m);
-        DisplayInfo {
-            id: m.id().unwrap_or_default(),
-            name: m.name().unwrap_or_default(),
-            x: m.x().unwrap_or_default(),
-            y: m.y().unwrap_or_default(),
-            width: m.width().unwrap_or_default(),
-            height: m.height().unwrap_or_default(),
-            is_primary: m.is_primary().unwrap_or_default(),
-            thumbnail,
-        }
-    }).collect())
+    Ok(monitors
+        .iter()
+        .map(|monitor| DisplayInfo {
+            id: monitor.id().unwrap_or_default(),
+            name: monitor.name().unwrap_or_default(),
+            x: monitor.x().unwrap_or_default(),
+            y: monitor.y().unwrap_or_default(),
+            width: monitor.width().unwrap_or_default(),
+            height: monitor.height().unwrap_or_default(),
+            is_primary: monitor.is_primary().unwrap_or_default(),
+            thumbnail: capture_monitor_thumbnail(monitor),
+        })
+        .collect())
 }
 
 #[tauri::command]
 fn get_windows() -> Result<Vec<WindowInfo>, String> {
     let windows = Window::all().map_err(|e| e.to_string())?;
-    Ok(windows.iter().filter(|w| {
-        let minimized = w.is_minimized().unwrap_or(false);
-        let title = w.title().unwrap_or_default();
-        !minimized && !title.is_empty()
-    }).map(|w| {
-        let thumbnail = capture_window_thumbnail(w);
-        WindowInfo {
-            id: w.id().unwrap_or_default(),
-            pid: w.pid().unwrap_or_default(),
-            app_name: w.app_name().unwrap_or_default(),
-            title: w.title().unwrap_or_default(),
-            x: w.x().unwrap_or_default(),
-            y: w.y().unwrap_or_default(),
-            width: w.width().unwrap_or_default(),
-            height: w.height().unwrap_or_default(),
-            is_minimized: w.is_minimized().unwrap_or_default(),
-            thumbnail,
-        }
-    }).collect())
+    Ok(windows
+        .iter()
+        .filter(|window| !window.is_minimized().unwrap_or(false) && !window.title().unwrap_or_default().is_empty())
+        .map(|window| WindowInfo {
+            id: window.id().unwrap_or_default(),
+            pid: window.pid().unwrap_or_default(),
+            app_name: window.app_name().unwrap_or_default(),
+            title: window.title().unwrap_or_default(),
+            x: window.x().unwrap_or_default(),
+            y: window.y().unwrap_or_default(),
+            width: window.width().unwrap_or_default(),
+            height: window.height().unwrap_or_default(),
+            is_minimized: window.is_minimized().unwrap_or_default(),
+            thumbnail: capture_window_thumbnail(window),
+        })
+        .collect())
 }
 
 #[tauri::command]
 fn start_recording(target_type: String, target_id: u32, state: State<'_, AppState>) -> Result<(), String> {
-    let mut process_guard = state.recording_process.lock().unwrap();
-    if process_guard.is_some() {
-        return Err("Already recording".into());
-    }
-
-    let out_dir = get_active_output_dir(&state);
-    let file_path = out_dir.join(format!(
-        "trace_recording_{}.mp4",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    ));
-    let file_path_str = file_path.to_string_lossy().to_string();
-
-    let mut args = vec![
-        "-y".to_string(),
-        "-f".to_string(), "gdigrab".to_string(),
-        "-framerate".to_string(), "30".to_string(),
-    ];
-
-    if target_type == "window" {
-        let windows = Window::all().map_err(|e| e.to_string())?;
-        let window = windows.iter().find(|w| w.id().unwrap_or_default() == target_id)
-            .ok_or("Window not found")?;
-        let title = window.title().unwrap_or_default();
-        args.push("-i".to_string());
-        args.push(format!("title={}", title));
-    } else {
-        let monitors = Monitor::all().map_err(|e| e.to_string())?;
-        let monitor = monitors.iter().find(|m| m.id().unwrap_or_default() == target_id)
-            .ok_or("Display not found")?;
-
-        let ox = monitor.x().unwrap_or_default();
-        let oy = monitor.y().unwrap_or_default();
-        let w = monitor.width().unwrap_or_default();
-        let h = monitor.height().unwrap_or_default();
-
-        args.extend([
-            "-offset_x".into(), ox.to_string(),
-            "-offset_y".into(), oy.to_string(),
-            "-video_size".into(), format!("{}x{}", w, h),
-            "-i".into(), "desktop".into(),
-        ]);
-    }
-
-    args.extend([
-        "-c:v".into(), "libx264".into(),
-        "-preset".into(), "ultrafast".into(),
-        "-pix_fmt".into(), "yuv420p".into(),
-        file_path_str.clone(),
-    ]);
-
-    let child = Command::new("ffmpeg")
-        .args(&args)
-        .stdin(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start ffmpeg: {}", e))?;
-
-    *process_guard = Some(child);
-    *state.last_file_path.lock().unwrap() = Some(file_path_str);
-    Ok(())
+    let target = CaptureTarget::resolve(&target_type, target_id).map_err(|e| e.to_string())?;
+    let output_dir = get_active_output_dir(&state);
+    state
+        .recording_manager
+        .start(target, output_dir)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
-    let mut guard = state.recording_process.lock().unwrap();
-    if let Some(mut child) = guard.take() {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(b"q\n");
-            let _ = stdin.flush();
-        }
-        let _ = child.wait();
-    } else {
-        return Err("Not recording".into());
-    }
-    let path = state.last_file_path.lock().unwrap().clone().unwrap_or_default();
-    Ok(path)
+    let artifacts = state.recording_manager.stop().map_err(|e| e.to_string())?;
+    let final_path = get_active_output_dir(&state).join(format!(
+        "recast_recording_{}.recast",
+        artifacts.started_at_unix_ms
+    ));
+    let recording_meta = probe_video_metadata(&artifacts.recording_path)?;
+    let metadata = ProjectMetadata {
+        schema_version: 1,
+        created_at_unix_ms: artifacts.started_at_unix_ms,
+        capture_target: artifacts.capture_target.clone(),
+        stats: artifacts.stats.clone(),
+        video: project::ProjectVideoMetadata {
+            width: if recording_meta.width > 0 {
+                recording_meta.width
+            } else {
+                artifacts.capture_target.crop.width
+            },
+            height: if recording_meta.height > 0 {
+                recording_meta.height
+            } else {
+                artifacts.capture_target.crop.height
+            },
+            fps: recording_meta.fps.round().max(1.0) as u32,
+            duration_ms: artifacts.stats.duration_ms,
+        },
+    };
+    let default_render_state = RenderState {
+        trim_end: artifacts.stats.duration_ms as f64 / 1000.0,
+        ..RenderState::default()
+    };
+    let project_path = write_project(ProjectWriteRequest {
+        output_path: final_path.clone(),
+        metadata,
+        recording_path: artifacts.recording_path.clone(),
+        cursor_path: artifacts.cursor_path.clone(),
+        audio_path: artifacts.audio_path.clone(),
+        edits_json: serde_json::to_string_pretty(&default_render_state).unwrap_or_else(|_| "{}".into()),
+    })
+    .map_err(|e| e.to_string())?;
+
+    let _ = fs::remove_file(&artifacts.recording_path);
+    let _ = fs::remove_file(&artifacts.cursor_path);
+    let _ = fs::remove_file(&artifacts.audio_path);
+
+    *state.last_file_path.lock() = Some(project_path.to_string_lossy().to_string());
+    Ok(project_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -277,24 +525,27 @@ fn list_recordings(state: State<'_, AppState>) -> Result<Vec<RecordingEntry>, St
     let dir_path = get_active_output_dir(&state);
     let mut entries = Vec::new();
 
-    let dir = fs::read_dir(&dir_path).map_err(|e| e.to_string())?;
-    for entry in dir.flatten() {
+    for entry in fs::read_dir(&dir_path).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with("trace_recording_") && name.ends_with(".mp4") {
-            if let Ok(meta) = entry.metadata() {
-                let created = meta.modified()
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
+        let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default();
+        if !matches!(extension, "recast" | "mp4") {
+            continue;
+        }
 
-                entries.push(RecordingEntry {
-                    filename: name,
-                    path: entry.path().to_string_lossy().to_string(),
-                    size_bytes: meta.len(),
-                    created,
-                });
-            }
+        if let Ok(meta) = entry.metadata() {
+            let created = meta
+                .modified()
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            entries.push(RecordingEntry {
+                filename: name,
+                path: path.to_string_lossy().to_string(),
+                size_bytes: meta.len(),
+                created,
+            });
         }
     }
 
@@ -314,219 +565,99 @@ fn open_file_location(path: String) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize, Clone)]
-pub struct VideoMetadata {
-    duration: f64,
-    width: u32,
-    height: u32,
-    fps: f64,
-    codec: String,
-    size_bytes: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AudioSettingsPayload {
-    volume: f64,
-    muted: bool,
-    fade_in: f64,
-    fade_out: f64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WatermarkSettingsPayload {
-    enabled: bool,
-    image_path: String,
-    #[serde(rename = "imageSrc")]
-    _image_src: String,
-    opacity: f64,
-    scale: f64,
-    position: String,
-    inset: f64,
-}
-
-fn input_has_audio(path: &str) -> bool {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "a",
-            "-show_entries",
-            "stream=index",
-            "-of",
-            "csv=p=0",
-            path,
-        ])
-        .output();
-
-    match output {
-        Ok(result) if result.status.success() => {
-            !String::from_utf8_lossy(&result.stdout).trim().is_empty()
-        }
-        _ => false,
-    }
-}
-
-fn build_audio_filter(settings: &AudioSettingsPayload, duration: f64) -> Option<String> {
-    let mut filters: Vec<String> = Vec::new();
-
-    if settings.muted {
-        filters.push("volume=0".into());
-    } else if (settings.volume - 100.0).abs() > f64::EPSILON {
-        filters.push(format!("volume={:.3}", (settings.volume / 100.0).max(0.0)));
-    }
-
-    if settings.fade_in > 0.0 {
-        filters.push(format!("afade=t=in:st=0:d={:.3}", settings.fade_in));
-    }
-
-    if settings.fade_out > 0.0 {
-        let fade_start = (duration - settings.fade_out).max(0.0);
-        filters.push(format!(
-            "afade=t=out:st={:.3}:d={:.3}",
-            fade_start,
-            settings.fade_out
-        ));
-    }
-
-    if filters.is_empty() {
-        None
-    } else {
-        Some(filters.join(","))
-    }
-}
-
-fn get_watermark_overlay_position(position: &str, inset: f64) -> (String, String) {
-    let safe_inset = inset.max(0.0).round() as i64;
-    match position {
-        "top-left" => (safe_inset.to_string(), safe_inset.to_string()),
-        "top-right" => (
-            format!("main_w-overlay_w-{}", safe_inset),
-            safe_inset.to_string(),
-        ),
-        "bottom-left" => (
-            safe_inset.to_string(),
-            format!("main_h-overlay_h-{}", safe_inset),
-        ),
-        _ => (
-            format!("main_w-overlay_w-{}", safe_inset),
-            format!("main_h-overlay_h-{}", safe_inset),
-        ),
-    }
+#[tauri::command]
+fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
+    project_or_media_metadata(Path::new(&path))
 }
 
 #[tauri::command]
-fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
-    let file_path = Path::new(&path);
-    if !file_path.exists() {
-        return Err("File not found".into());
+fn load_editor_document(path: String) -> Result<EditorDocument, String> {
+    let input = PathBuf::from(&path);
+    if let Some(project) = open_project_if_needed(&input)? {
+        let render_state = fs::read_to_string(&project.edits_path)
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_else(|| RenderState {
+                trim_end: project.metadata.video.duration_ms as f64 / 1000.0,
+                ..RenderState::default()
+            });
+
+        return Ok(EditorDocument {
+            project_path: path,
+            media_path: project.recording_path.to_string_lossy().to_string(),
+            cursor_path: Some(project.cursor_path.to_string_lossy().to_string()),
+            edits_path: Some(project.edits_path.to_string_lossy().to_string()),
+            metadata: VideoMetadata {
+                duration: project.metadata.video.duration_ms as f64 / 1000.0,
+                width: project.metadata.video.width,
+                height: project.metadata.video.height,
+                fps: project.metadata.video.fps as f64,
+                codec: "h264".into(),
+                size_bytes: fs::metadata(&input).map(|m| m.len()).unwrap_or_default(),
+            },
+            render_state,
+        });
     }
 
-    let size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-
-    // Try ffprobe for accurate metadata
-    let output = Command::new("ffprobe")
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            "-show_streams",
-            &path,
-        ])
-        .output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let json_str = String::from_utf8_lossy(&out.stdout);
-            let parsed: serde_json::Value = serde_json::from_str(&json_str)
-                .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
-
-            let duration = parsed["format"]["duration"]
-                .as_str()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0);
-
-            // Find video stream
-            let streams = parsed["streams"].as_array();
-            let video_stream = streams
-                .and_then(|s| s.iter().find(|st| st["codec_type"].as_str() == Some("video")));
-
-            let (width, height, fps, codec) = if let Some(vs) = video_stream {
-                let w = vs["width"].as_u64().unwrap_or(0) as u32;
-                let h = vs["height"].as_u64().unwrap_or(0) as u32;
-                let codec_name = vs["codec_name"].as_str().unwrap_or("unknown").to_string();
-
-                // Parse FPS from r_frame_rate (e.g., "30/1")
-                let fps_str = vs["r_frame_rate"].as_str().unwrap_or("30/1");
-                let fps_val = if let Some((num, den)) = fps_str.split_once('/') {
-                    let n: f64 = num.parse().unwrap_or(30.0);
-                    let d: f64 = den.parse().unwrap_or(1.0);
-                    if d > 0.0 { n / d } else { 30.0 }
-                } else {
-                    fps_str.parse::<f64>().unwrap_or(30.0)
-                };
-
-                (w, h, fps_val, codec_name)
-            } else {
-                (0, 0, 30.0, "unknown".to_string())
-            };
-
-            Ok(VideoMetadata { duration, width, height, fps, codec, size_bytes })
-        }
-        _ => {
-            // Fallback: return minimal metadata
-            Ok(VideoMetadata {
-                duration: 0.0,
-                width: 0,
-                height: 0,
-                fps: 30.0,
-                codec: "unknown".to_string(),
-                size_bytes,
-            })
-        }
-    }
+    let metadata = probe_video_metadata(&input)?;
+    Ok(EditorDocument {
+        project_path: path.clone(),
+        media_path: path,
+        cursor_path: None,
+        edits_path: None,
+        metadata: metadata.clone(),
+        render_state: RenderState {
+            trim_end: metadata.duration,
+            ..RenderState::default()
+        },
+    })
 }
 
 #[tauri::command]
 fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, String> {
-    let file_path = Path::new(&path);
-    if !file_path.exists() {
-        return Err("File not found".into());
-    }
-
-    // Get duration first
-    let meta = get_video_metadata(path.clone())?;
-    if meta.duration <= 0.0 {
+    let input = PathBuf::from(&path);
+    let project = open_project_if_needed(&input)?;
+    let media_path = project
+        .as_ref()
+        .map(|value| value.recording_path.clone())
+        .unwrap_or(input);
+    let meta = probe_video_metadata(&media_path)?;
+    if meta.duration <= 0.0 || count == 0 {
         return Ok(Vec::new());
     }
 
     let interval = meta.duration / count as f64;
-    let mut thumbnails = Vec::new();
-    let temp_dir = env::temp_dir().join("trace_thumbnails");
+    let temp_dir = env::temp_dir().join("recast-thumbnails");
     let _ = fs::create_dir_all(&temp_dir);
+    let mut thumbnails = Vec::new();
 
-    for i in 0..count {
-        let timestamp = i as f64 * interval;
-        let thumb_path = temp_dir.join(format!("thumb_{}.jpg", i));
-
+    for index in 0..count {
+        let timestamp = index as f64 * interval;
+        let thumb_path = temp_dir.join(format!("thumb-{index}.jpg"));
         let result = Command::new("ffmpeg")
             .args([
-                "-y", "-ss", &format!("{:.2}", timestamp),
-                "-i", &path,
-                "-vframes", "1",
-                "-vf", "scale=160:-1",
-                "-q:v", "8",
+                "-y",
+                "-ss",
+                &format!("{timestamp:.2}"),
+                "-i",
+                &media_path.to_string_lossy(),
+                "-vframes",
+                "1",
+                "-vf",
+                "scale=160:-1",
+                "-q:v",
+                "8",
                 thumb_path.to_string_lossy().as_ref(),
             ])
             .output();
 
-        if let Ok(out) = result {
-            if out.status.success() {
+        if let Ok(output) = result {
+            if output.status.success() {
                 if let Ok(data) = fs::read(&thumb_path) {
-                    let b64 = general_purpose::STANDARD.encode(&data);
-                    thumbnails.push(format!("data:image/jpeg;base64,{}", b64));
+                    thumbnails.push(format!(
+                        "data:image/jpeg;base64,{}",
+                        general_purpose::STANDARD.encode(data)
+                    ));
                 }
             }
         }
@@ -537,144 +668,129 @@ fn generate_thumbnails(path: String, count: u32) -> Result<Vec<String>, String> 
 }
 
 #[tauri::command]
-fn export_video(
-    input_path: String,
-    format: String,
-    trim_start: f64,
-    trim_end: f64,
-    _background_type: String,
-    _background_value: String,
-    _background_blur: f64,
-    _padding: f64,
-    audio_settings: AudioSettingsPayload,
-    watermark_settings: WatermarkSettingsPayload,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let in_path = Path::new(&input_path);
-    if !in_path.exists() {
-        return Err("Input file not found".into());
-    }
-
-    let out_dir = get_active_output_dir(&state);
-    let extension = match format.as_str() {
+fn export_video(request: ExportRequest, state: State<'_, AppState>) -> Result<String, String> {
+    let input_path = PathBuf::from(&request.input_path);
+    let project = open_project_if_needed(&input_path)?;
+    let source_video = project
+        .as_ref()
+        .map(|value| value.recording_path.clone())
+        .unwrap_or_else(|| input_path.clone());
+    let metadata = probe_video_metadata(&source_video)?;
+    let graph = RenderGraph::from_state(&request.render_state);
+    let (trim_start, trim_end) = graph.trim_range();
+    let duration = (trim_end - trim_start).max(0.0);
+    let output_dir = get_active_output_dir(&state);
+    let extension = match request.format.as_str() {
         "gif" => "gif",
         "webm" => "webm",
         _ => "mp4",
     };
-
-    let out_path = out_dir.join(format!(
-        "trace_export_{}.{}",
+    let output_path = output_dir.join(format!(
+        "recast_export_{}.{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs(),
         extension
     ));
-    let out_str = out_path.to_string_lossy().to_string();
 
-    let duration = trim_end - trim_start;
-    let has_audio = format != "gif" && input_has_audio(&input_path);
-    let has_watermark = watermark_settings.enabled
-        && !watermark_settings.image_path.is_empty()
-        && Path::new(&watermark_settings.image_path).exists();
+    let export_plan = graph
+        .build_export_plan(
+            SourceVideoMetadata {
+                width: metadata.width,
+                height: metadata.height,
+            },
+            &static_root(),
+            1,
+        )
+        .map_err(|e| e.to_string())?;
 
-    let mut args: Vec<String> = vec![
-        "-y".into(),
-        "-ss".into(), format!("{:.3}", trim_start),
-        "-i".into(), input_path.clone(),
-        "-t".into(), format!("{:.3}", duration),
+    let mut args = vec![
+        "-y".to_string(),
+        "-ss".to_string(),
+        format!("{trim_start:.3}"),
+        "-i".to_string(),
+        source_video.to_string_lossy().to_string(),
     ];
 
-    if has_watermark {
+    if duration > 0.0 {
+        args.extend(["-t".to_string(), format!("{duration:.3}")]);
+    }
+
+    for input in &export_plan.extra_inputs {
         args.extend([
-            "-i".into(),
-            watermark_settings.image_path.clone(),
+            "-loop".to_string(),
+            "1".to_string(),
+            "-i".to_string(),
+            input.to_string_lossy().to_string(),
         ]);
     }
 
-    if has_watermark {
-        let watermark_scale = (watermark_settings.scale / 100.0).clamp(0.05, 0.5);
-        let watermark_opacity = (watermark_settings.opacity / 100.0).clamp(0.1, 1.0);
-        let (overlay_x, overlay_y) = get_watermark_overlay_position(
-            &watermark_settings.position,
-            watermark_settings.inset,
-        );
-        let filter_complex = format!(
-            "[1:v][0:v]scale2ref=w=main_w*{:.4}:h=ow/mdar[wm][base];[wm]format=rgba,colorchannelmixer=aa={:.3}[wm_alpha];[base][wm_alpha]overlay=x={}:y={}[vout]",
-            watermark_scale,
-            watermark_opacity,
-            overlay_x,
-            overlay_y
-        );
-
+    if let Some(filter_complex) = &export_plan.filter_complex {
         args.extend([
-            "-filter_complex".into(),
-            filter_complex,
-            "-map".into(),
-            "[vout]".into(),
+            "-filter_complex".to_string(),
+            filter_complex.clone(),
+            "-map".to_string(),
+            export_plan.video_map.clone(),
         ]);
     } else {
-        args.extend([
-            "-map".into(),
-            "0:v:0".into(),
-        ]);
+        args.extend(["-map".to_string(), "0:v:0".to_string()]);
     }
 
-    if has_audio {
-        args.extend([
-            "-map".into(),
-            "0:a?".into(),
-        ]);
-        if let Some(audio_filter) = build_audio_filter(&audio_settings, duration) {
-            args.extend([
-                "-af".into(),
-                audio_filter,
-            ]);
-        }
+    if has_audio(&source_video) {
+        args.extend(["-map".to_string(), "0:a?".to_string()]);
     }
 
-    match format.as_str() {
+    match request.format.as_str() {
         "gif" => {
             args.extend([
-                "-vf".into(),
-                "fps=15,scale=640:-1:flags=lanczos".into(),
-                "-loop".into(), "0".into(),
-                out_str.clone(),
+                "-vf".to_string(),
+                "fps=15,scale=960:-1:flags=lanczos".to_string(),
+                "-loop".to_string(),
+                "0".to_string(),
+                output_path.to_string_lossy().to_string(),
             ]);
         }
         "webm" => {
             args.extend([
-                "-c:v".into(), "libvpx-vp9".into(),
-                "-crf".into(), "30".into(),
-                "-b:v".into(), "0".into(),
-                "-c:a".into(), "libopus".into(),
-                out_str.clone(),
+                "-c:v".to_string(),
+                "libvpx-vp9".to_string(),
+                "-crf".to_string(),
+                "30".to_string(),
+                "-b:v".to_string(),
+                "0".to_string(),
+                "-c:a".to_string(),
+                "libopus".to_string(),
+                output_path.to_string_lossy().to_string(),
             ]);
         }
         _ => {
-            // MP4
             args.extend([
-                "-c:v".into(), "libx264".into(),
-                "-preset".into(), "medium".into(),
-                "-crf".into(), "23".into(),
-                "-pix_fmt".into(), "yuv420p".into(),
-                "-c:a".into(), "aac".into(),
-                out_str.clone(),
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-preset".to_string(),
+                "medium".to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+                "-movflags".to_string(),
+                "+faststart".to_string(),
+                output_path.to_string_lossy().to_string(),
             ]);
         }
     }
 
-    let result = Command::new("ffmpeg")
+    let output = Command::new("ffmpeg")
         .args(&args)
         .output()
-        .map_err(|e| format!("Failed to start ffmpeg: {}", e))?;
+        .map_err(|e| e.to_string())?;
 
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("FFmpeg export failed: {}", stderr));
+    if !output.status.success() {
+        return Err(format!(
+            "export failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-
-    Ok(out_str)
+    Ok(output_path.to_string_lossy().to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -684,11 +800,11 @@ pub fn run() {
             let handle = app.handle();
             let config = load_config(&handle);
             app.manage(AppState {
-                recording_process: Mutex::new(None),
+                recording_manager: RecordingManager::default(),
                 last_file_path: Mutex::new(None),
                 config: Mutex::new(config),
             });
-            
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -700,15 +816,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_output_dir,
+            set_output_dir,
             get_displays,
             get_windows,
             start_recording,
             stop_recording,
             list_recordings,
             open_file_location,
-            get_output_dir,
-            set_output_dir,
             get_video_metadata,
+            load_editor_document,
+            render_preview_frame,
             generate_thumbnails,
             export_video
         ])

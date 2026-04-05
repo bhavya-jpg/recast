@@ -54,7 +54,7 @@
         }
         const selectorWin = new WebviewWindow("source-selector", {
             url: "/select",
-            title: "Select Source — Trace",
+            title: "Select Source — Recast",
             width: 660,
             height: 500,
             center: true,

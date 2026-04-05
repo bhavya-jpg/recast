@@ -66,6 +66,28 @@ export interface VideoMetadata {
 	sizeBytes: number;
 }
 
+export interface EditorRenderState {
+	trimStart: number;
+	trimEnd: number;
+	backgroundType: BackgroundType;
+	backgroundValue: string;
+	backgroundBlur: number;
+	padding: number;
+	cursorEnabled: boolean;
+	cursorSize: number;
+	cursorSmoothing: number;
+	cursorHighlightClicks: boolean;
+	cursorHighlightColor: string;
+	cursorHighlightOpacity: number;
+	cursorHideWhenIdle: boolean;
+	cursorIdleTimeout: number;
+	zoomRegions: Array<{
+		start: number;
+		end: number;
+		scale: number;
+	}>;
+}
+
 export type ExportFormat = 'mp4' | 'gif' | 'webm';
 
 export type LayoutMode = 'auto' | 'crop';
@@ -296,6 +318,61 @@ export function createEditorStore() {
 		redoStack = [];
 	}
 
+	function toRenderState(): EditorRenderState {
+		return {
+			trimStart,
+			trimEnd,
+			backgroundType,
+			backgroundValue,
+			backgroundBlur,
+			padding,
+			cursorEnabled: cursorSettings.enabled,
+			cursorSize: cursorSettings.size,
+			cursorSmoothing: cursorSettings.smoothing,
+			cursorHighlightClicks: cursorSettings.highlightClicks,
+			cursorHighlightColor: cursorSettings.highlightColor,
+			cursorHighlightOpacity: cursorSettings.highlightOpacity,
+			cursorHideWhenIdle: cursorSettings.hideWhenIdle,
+			cursorIdleTimeout: cursorSettings.idleTimeout,
+			zoomRegions: zoomRegions.map((region) => ({
+				start: region.start,
+				end: region.end,
+				scale: region.scale,
+			})),
+		};
+	}
+
+	function loadRenderState(state: Partial<EditorRenderState>) {
+		trimStart = state.trimStart ?? 0;
+		trimEnd = state.trimEnd ?? metadata?.duration ?? 0;
+		backgroundType = state.backgroundType ?? 'color';
+		backgroundValue = state.backgroundValue ?? '#111111';
+		backgroundBlur = state.backgroundBlur ?? 0;
+		padding = state.padding ?? 0;
+		cursorSettings = {
+			...cursorSettings,
+			enabled: state.cursorEnabled ?? cursorSettings.enabled,
+			size: state.cursorSize ?? cursorSettings.size,
+			smoothing: state.cursorSmoothing ?? cursorSettings.smoothing,
+			highlightClicks:
+				state.cursorHighlightClicks ?? cursorSettings.highlightClicks,
+			highlightColor:
+				state.cursorHighlightColor ?? cursorSettings.highlightColor,
+			highlightOpacity:
+				state.cursorHighlightOpacity ?? cursorSettings.highlightOpacity,
+			hideWhenIdle:
+				state.cursorHideWhenIdle ?? cursorSettings.hideWhenIdle,
+			idleTimeout:
+				state.cursorIdleTimeout ?? cursorSettings.idleTimeout,
+		};
+		zoomRegions = (state.zoomRegions ?? []).map((region) => ({
+			id: generateId(),
+			start: region.start,
+			end: region.end,
+			scale: region.scale,
+		}));
+	}
+
 	return {
 		// Getters (reactive reads)
 		get videoPath() { return videoPath; },
@@ -372,6 +449,8 @@ export function createEditorStore() {
 		removeZoomRegion,
 		updateZoomRegion,
 		reset,
+		toRenderState,
+		loadRenderState,
 	};
 }
 

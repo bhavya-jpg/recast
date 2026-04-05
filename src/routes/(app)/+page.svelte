@@ -1,6 +1,15 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
-    import { ExternalLink, Pencil, Play, RefreshCw, Video } from "@lucide/svelte";
+    import { isTauriApp } from "$lib/runtime/tauri";
+    import {
+        Clock3,
+        ExternalLink,
+        FolderOpen,
+        Pencil,
+        Play,
+        RefreshCw,
+        Video,
+    } from "@lucide/svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
 
@@ -11,9 +20,13 @@
         created: number;
     };
 
-    let recordings: RecordingEntry[] = $state([]);
+    type ThumbnailMap = Record<string, string>;
+
+    let recordings = $state<RecordingEntry[]>([]);
     let isFetching = $state(true);
     let outputDir = $state("");
+    let thumbnails = $state<ThumbnailMap>({});
+    let thumbnailPass = 0;
 
     onMount(() => {
         fetchSettings();
@@ -23,37 +36,91 @@
     async function fetchSettings() {
         try {
             outputDir = await invoke<string>("get_output_dir");
-        } catch (e) {
-            console.error(e);
+        } catch (error) {
+            console.error(error);
         }
     }
 
     async function fetchRecordings() {
         isFetching = true;
+        thumbnails = {};
         try {
             recordings = await invoke<RecordingEntry[]>("list_recordings");
-        } catch (e) {
-            console.error(e);
+            void loadThumbnails(recordings);
+        } catch (error) {
+            console.error(error);
         } finally {
             isFetching = false;
         }
+    }
+
+    async function loadThumbnails(items: RecordingEntry[]) {
+        const pass = ++thumbnailPass;
+        const settled = await Promise.allSettled(
+            items.map(async (item) => {
+                const frames = await invoke<string[]>("generate_thumbnails", {
+                    path: item.path,
+                    count: 1,
+                });
+                return [item.path, frames[0] ?? ""] as const;
+            }),
+        );
+
+        if (pass !== thumbnailPass) return;
+
+        const next: ThumbnailMap = {};
+        for (const result of settled) {
+            if (result.status === "fulfilled" && result.value[1]) {
+                next[result.value[0]] = result.value[1];
+            }
+        }
+        thumbnails = next;
     }
 
     async function openLocation(path: string) {
         await invoke("open_file_location", { path });
     }
 
-    function navigateToEditor(path: string) {
-        const encoded = btoa(encodeURIComponent(path));
-        goto(`/editor/${encoded}`);
+    function encodeEditorPath(path: string) {
+        return encodeURIComponent(btoa(encodeURIComponent(path)));
+    }
+
+    async function navigateToEditor(path: string, filename: string) {
+        const route = `/editor/${encodeEditorPath(path)}`;
+        const preference = localStorage.getItem("recast-editor-window");
+
+        if (preference === "new-window" && (await isTauriApp())) {
+            const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+            const label = `editor-${encodeEditorPath(path)
+                .replace(/[^a-zA-Z0-9]/g, "")
+                .slice(0, 48)}`;
+            const existing = await WebviewWindow.getByLabel(label);
+
+            if (existing) {
+                await existing.setFocus();
+                return;
+            }
+
+            const editorWindow = new WebviewWindow(label, {
+                url: route,
+                title: `Editor - ${filename}`,
+                width: 1440,
+                height: 960,
+                center: true,
+            });
+            editorWindow.once("tauri://error", (error) => console.error(error));
+            return;
+        }
+
+        await goto(route);
     }
 
     function formatSize(bytes: number) {
         if (bytes === 0) return "0 B";
-        const k = 1024,
-            sizes = ["B", "KB", "MB", "GB"];
+        const k = 1024;
+        const sizes = ["B", "KB", "MB", "GB"];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
     }
 
     function formatDate(unixSecs: number) {
@@ -64,17 +131,22 @@
             minute: "2-digit",
         });
     }
+
+    function getFileTypeLabel(filename: string) {
+        const extension = filename.split(".").pop()?.toUpperCase();
+        return extension || "MEDIA";
+    }
 </script>
 
 <div class="mx-auto flex w-full flex-1 flex-col p-10">
-    <div class="mb-8 flex items-end justify-between">
+    <div class="mb-8 flex items-end justify-between gap-4">
         <div>
             <h2 class="text-3xl font-semibold tracking-tight text-foreground">
                 Recordings
             </h2>
             <p class="mt-1.5 text-sm text-muted-foreground">
                 Saved to <span
-                    class="font-mono text-xs text-foreground bg-muted px-1.5 py-0.5 rounded-md"
+                    class="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground"
                     >{outputDir || "temporary directory"}</span
                 >
             </p>
@@ -83,32 +155,32 @@
         <button
             onclick={fetchRecordings}
             disabled={isFetching}
-            class="group flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-all disabled:opacity-50 shadow-sm active:scale-95"
+            class="group flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:bg-accent hover:text-foreground disabled:opacity-50"
             title="Refresh"
         >
             <RefreshCw
                 size={16}
                 class={isFetching
                     ? "animate-spin"
-                    : "group-hover:scale-110 transition-transform"}
+                    : "transition-transform group-hover:scale-110"}
             />
         </button>
     </div>
 
     {#if isFetching}
         <div
-            class="flex flex-col items-center justify-center gap-4 py-32 opacity-0 animate-in fade-in duration-500"
+            class="animate-in fade-in flex flex-col items-center justify-center gap-4 py-32 duration-500"
         >
             <div
                 class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
             ></div>
-            <span class="text-sm font-medium text-muted-foreground"
-                >Loading recordings...</span
-            >
+            <span class="text-sm font-medium text-muted-foreground">
+                Loading recordings...
+            </span>
         </div>
     {:else if recordings.length === 0}
         <div
-            class="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-card/50 py-32 hover:bg-card transition-colors duration-500 animate-in fade-in zoom-in-95"
+            class="animate-in fade-in zoom-in-95 flex flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-border bg-card/50 py-32 transition-colors duration-500 hover:bg-card"
         >
             <div
                 class="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]"
@@ -120,61 +192,110 @@
                     No recordings yet
                 </h3>
                 <p class="mt-1.5 text-sm text-muted-foreground">
-                    Take your first recording from the Trace Panel.
+                    Take your first recording from the Recast Panel.
                 </p>
             </div>
         </div>
     {:else}
-        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {#each recordings as item, i}
-                <div
-                    class="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm hover:border-primary/50 hover:shadow-md transition-all duration-300 animate-in slide-in-from-bottom-4 fade-in"
-                    style="animation-delay: {i * 50}ms;"
+                {@const thumbnail = thumbnails[item.path]}
+                <article
+                    class="group animate-in slide-in-from-bottom-4 fade-in relative overflow-hidden rounded-3xl border border-border/80 bg-card shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-xl"
+                    style="animation-delay: {i * 45}ms;"
                 >
-                    <div
-                        class="relative flex aspect-video w-full items-center justify-center bg-muted/50 overflow-hidden border-b border-border"
+                    <button
+                        type="button"
+                        onclick={() => navigateToEditor(item.path, item.filename)}
+                        class="block w-full text-left"
                     >
-                        <Play
-                            size={40}
-                            class="text-muted-foreground/30 transition-transform duration-500 group-hover:scale-110 group-hover:text-primary/10"
-                            fill="currentColor"
-                        />
-
                         <div
-                            class="absolute inset-0 bg-background/60 opacity-0 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100 flex items-center justify-center gap-2"
+                            class="relative aspect-video overflow-hidden border-b border-border/70 bg-gradient-to-br from-muted via-muted/80 to-card"
                         >
-                            <button
-                                onclick={() => navigateToEditor(item.path)}
-                                class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-all hover:scale-105 active:scale-95"
+                            {#if thumbnail}
+                                <img
+                                    src={thumbnail}
+                                    alt={item.filename}
+                                    class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                                    loading="lazy"
+                                    draggable="false"
+                                />
+                            {:else}
+                                <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_45%),linear-gradient(160deg,rgba(255,255,255,0.06),transparent_55%)]"></div>
+                                <div class="absolute inset-0 flex items-center justify-center">
+                                    <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-white/80 backdrop-blur">
+                                        <Play size={28} fill="currentColor" />
+                                    </div>
+                                </div>
+                            {/if}
+
+                            <div class="absolute inset-x-0 top-0 flex items-start justify-between p-3">
+                                <span class="rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-white/80 backdrop-blur">
+                                    {getFileTypeLabel(item.filename)}
+                                </span>
+                                <span class="rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white/80 backdrop-blur">
+                                    {formatSize(item.size_bytes)}
+                                </span>
+                            </div>
+
+                            <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-4">
+                                <div class="flex items-center gap-2 text-white/80">
+                                    <div class="flex h-9 w-9 items-center justify-center rounded-full bg-white/14 backdrop-blur">
+                                        <Pencil size={16} />
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-semibold text-white">
+                                            Open in editor
+                                        </p>
+                                        <p class="text-xs text-white/70">
+                                            Continue trimming and exporting
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </button>
+
+                    <div class="space-y-4 p-4">
+                        <div class="min-w-0">
+                            <h3
+                                class="truncate text-sm font-semibold text-foreground"
+                                title={item.filename}
                             >
-                                <Pencil size={16} />
+                                {item.filename}
+                            </h3>
+                            <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <Clock3 size={13} />
+                                    {formatDate(item.created)}
+                                </span>
+                                <span class="inline-flex items-center gap-1.5">
+                                    <FolderOpen size={13} />
+                                    Recording
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onclick={() => navigateToEditor(item.path, item.filename)}
+                                class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90"
+                            >
+                                <Pencil size={15} />
                                 Edit
                             </button>
                             <button
+                                type="button"
                                 onclick={() => openLocation(item.path)}
-                                class="flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm ring-1 ring-border hover:bg-accent transition-all hover:scale-105 active:scale-95"
+                                class="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground transition-all hover:bg-accent"
+                                title="Show in folder"
                             >
-                                <ExternalLink size={14} />
+                                <ExternalLink size={15} />
                             </button>
                         </div>
                     </div>
-
-                    <div class="flex flex-col gap-1 p-4">
-                        <h3
-                            class="truncate text-sm font-medium text-foreground"
-                            title={item.filename}
-                        >
-                            {item.filename}
-                        </h3>
-                        <div
-                            class="flex items-center gap-2 text-xs text-muted-foreground font-mono"
-                        >
-                            <span>{formatDate(item.created)}</span>
-                            <span class="h-1 w-1 rounded-full bg-border"></span>
-                            <span>{formatSize(item.size_bytes)}</span>
-                        </div>
-                    </div>
-                </div>
+                </article>
             {/each}
         </div>
     {/if}

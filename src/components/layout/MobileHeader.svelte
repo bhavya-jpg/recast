@@ -23,7 +23,7 @@
         class="text-base font-semibold tracking-tight group-data-[state=collapsed]:hidden"
         data-tauri-drag-region
       >
-        Trace Studio
+        Recast Studio
       </h1>
     </div>
   </a>

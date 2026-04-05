@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "trace",
+  "productName": "recast",
   "version": "0.0.1",
-  "identifier": "com.nexonauts.trace",
+  "identifier": "com.nexonauts.recast",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:4000",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Trace",
+        "title": "Recast",
         "url": "/",
         "width": 1280,
         "height": 800,
