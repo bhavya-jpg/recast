@@ -9,13 +9,11 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use xcap::{Monitor, Window};
 
-pub mod audio;
 pub mod cursor;
-pub mod dxgi;
 pub mod encoder;
 pub mod pipeline;
 
-use audio::AudioCapture;
+use crate::audio::{AudioCaptureConfig, AudioCaptureSession};
 use cursor::{CursorTrack, spawn_cursor_capture, write_cursor_track};
 use encoder::{EncoderConfig, spawn_encoder_loop};
 use pipeline::{PipelineSnapshot, RecordingPipeline, spawn_capture_loop};
@@ -173,7 +171,8 @@ struct RecordingSession {
     capture_handle: JoinHandle<Result<()>>,
     encoder_handle: JoinHandle<Result<()>>,
     cursor_handle: JoinHandle<CursorTrack>,
-    audio_capture: AudioCapture,
+    audio_session: Option<AudioCaptureSession>,
+    audio_path: PathBuf,
     pipeline: RecordingPipeline,
     target: CaptureTarget,
     recording_path: PathBuf,
@@ -219,14 +218,28 @@ impl RecordingManager {
             pipeline.clone(),
         )?;
         let cursor_handle = spawn_cursor_capture(stop_flag.clone(), started_at)?;
-        let audio_capture = AudioCapture::new(audio_path, started_at);
+
+        // Start real audio capture. If it fails (e.g., no audio device), log
+        // the error and continue without audio — the recording is still valid.
+        let audio_session = match AudioCaptureSession::start(AudioCaptureConfig {
+            output_path: audio_path.clone(),
+            capture_loopback: true,
+            capture_microphone: false,
+        }) {
+            Ok(session) => Some(session),
+            Err(e) => {
+                log::warn!("audio capture unavailable, recording without audio: {e}");
+                None
+            }
+        };
 
         *guard = Some(RecordingSession {
             stop_flag,
             capture_handle,
             encoder_handle,
             cursor_handle,
-            audio_capture,
+            audio_session,
+            audio_path,
             pipeline,
             target,
             recording_path,
@@ -260,7 +273,30 @@ impl RecordingManager {
             .join()
             .map_err(|_| anyhow!("encoder thread panicked"))??;
 
-        let audio_path = session.audio_capture.finish()?;
+        // Stop audio capture. If it was started, finalize the WAV file.
+        // If audio was unavailable, write a silence WAV as a placeholder
+        // so the project format always has an audio track.
+        let audio_path = if let Some(audio_session) = session.audio_session {
+            match audio_session.stop() {
+                Ok(path) => path,
+                Err(e) => {
+                    log::warn!("audio capture stop failed, writing silence: {e}");
+                    let duration = session.started_at.elapsed().as_secs_f64();
+                    crate::audio::wav::write_silence_wav(
+                        &session.audio_path,
+                        48_000,
+                        2,
+                        duration,
+                    )?;
+                    session.audio_path
+                }
+            }
+        } else {
+            let duration = session.started_at.elapsed().as_secs_f64();
+            crate::audio::wav::write_silence_wav(&session.audio_path, 48_000, 2, duration)?;
+            session.audio_path
+        };
+
         let stats = build_stats(
             &session.pipeline,
             session.started_at.elapsed().as_millis() as u64,

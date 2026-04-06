@@ -3,55 +3,20 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use xcap::Monitor;
 
-use super::CaptureTarget;
+use crate::capture::CaptureSource;
+use crate::recording::CaptureTarget;
 
-pub struct FrameSource {
-    width: u32,
-    height: u32,
-    inner: FrameSourceKind,
+pub fn create_source(target: &CaptureTarget) -> Result<Box<dyn CaptureSource>> {
+    if let Ok(source) = DxgiSource::new(target) {
+        return Ok(Box::new(source));
+    }
+    let fallback = XCapSource::new(target)?;
+    Ok(Box::new(fallback))
 }
 
-enum FrameSourceKind {
-    #[cfg(windows)]
-    Dxgi(WindowsDxgiSource),
-    XCap(XCapSource),
-}
-
-impl FrameSource {
-    pub fn new(target: &CaptureTarget) -> Result<Self> {
-        #[cfg(windows)]
-        if let Ok(source) = WindowsDxgiSource::new(target) {
-            return Ok(Self {
-                width: source.width,
-                height: source.height,
-                inner: FrameSourceKind::Dxgi(source),
-            });
-        }
-
-        let fallback = XCapSource::new(target)?;
-        Ok(Self {
-            width: fallback.width,
-            height: fallback.height,
-            inner: FrameSourceKind::XCap(fallback),
-        })
-    }
-
-    pub fn capture_next(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
-        match &mut self.inner {
-            #[cfg(windows)]
-            FrameSourceKind::Dxgi(source) => source.capture_next(timeout),
-            FrameSourceKind::XCap(source) => source.capture_next(timeout),
-        }
-    }
-
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-}
+// ---------------------------------------------------------------------------
+// XCap fallback
+// ---------------------------------------------------------------------------
 
 struct XCapSource {
     monitor: Monitor,
@@ -77,40 +42,56 @@ impl XCapSource {
             height: target.source.height,
         })
     }
+}
 
+// SAFETY: XCapSource contains xcap::Monitor which holds an HMONITOR (*mut c_void).
+// HMONITOR is a system-wide handle that is safe to use from any thread.
+unsafe impl Send for XCapSource {}
+
+impl CaptureSource for XCapSource {
     fn capture_next(&mut self, _timeout: Duration) -> Result<Option<Vec<u8>>> {
         let image = self.monitor.capture_image()?;
         Ok(Some(image.into_raw()))
     }
+
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
 }
 
-#[cfg(windows)]
-struct WindowsDxgiSource {
-    duplication: windows::Win32::Graphics::Dxgi::IDXGIOutputDuplication,
-    device_context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
-    staging_texture: windows::Win32::Graphics::Direct3D11::ID3D11Texture2D,
+// ---------------------------------------------------------------------------
+// DXGI hardware capture
+// ---------------------------------------------------------------------------
+
+struct DxgiSource {
+    duplication: ::windows::Win32::Graphics::Dxgi::IDXGIOutputDuplication,
+    device_context: ::windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
+    staging_texture: ::windows::Win32::Graphics::Direct3D11::ID3D11Texture2D,
     width: u32,
     height: u32,
 }
 
-#[cfg(windows)]
-impl WindowsDxgiSource {
+impl DxgiSource {
     fn new(target: &CaptureTarget) -> Result<Self> {
-        use windows::Win32::Foundation::RECT;
-        use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
-        use windows::Win32::Graphics::Direct3D11::{
+        use ::windows::Win32::Foundation::RECT;
+        use ::windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
+        use ::windows::Win32::Graphics::Direct3D11::{
             D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION,
             D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
             ID3D11DeviceContext,
         };
-        use windows::Win32::Graphics::Dxgi::Common::{
+        use ::windows::Win32::Graphics::Dxgi::Common::{
             DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
         };
-        use windows::Win32::Graphics::Dxgi::{
+        use ::windows::Win32::Graphics::Dxgi::{
             CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput,
             IDXGIOutput1,
         };
-        use windows::core::Interface;
+        use ::windows::core::Interface;
 
         let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1()? };
         let target_rect = RECT {
@@ -200,15 +181,17 @@ impl WindowsDxgiSource {
 
         Err(anyhow!("no DXGI output matched the requested display"))
     }
+}
 
+impl CaptureSource for DxgiSource {
     fn capture_next(&mut self, timeout: Duration) -> Result<Option<Vec<u8>>> {
-        use windows::Win32::Graphics::Direct3D11::{
+        use ::windows::Win32::Graphics::Direct3D11::{
             D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, ID3D11Resource, ID3D11Texture2D,
         };
-        use windows::Win32::Graphics::Dxgi::{
+        use ::windows::Win32::Graphics::Dxgi::{
             DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, IDXGIResource,
         };
-        use windows::core::Interface;
+        use ::windows::core::Interface;
 
         let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource = None;
@@ -254,8 +237,10 @@ impl WindowsDxgiSource {
         let mut bytes = vec![0u8; frame_stride * self.height as usize];
 
         unsafe {
-            let source =
-                std::slice::from_raw_parts(mapped.pData as *const u8, row_pitch * self.height as usize);
+            let source = std::slice::from_raw_parts(
+                mapped.pData as *const u8,
+                row_pitch * self.height as usize,
+            );
             for row in 0..self.height as usize {
                 let start = row * row_pitch;
                 let end = start + frame_stride;
@@ -268,5 +253,13 @@ impl WindowsDxgiSource {
         }
 
         Ok(Some(bytes))
+    }
+
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
     }
 }

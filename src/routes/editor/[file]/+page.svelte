@@ -376,6 +376,7 @@
   </div>
 
   {#if videoSrc}
+    <!-- svelte-ignore a11y_media_has_caption -->
     <video
       bind:this={videoEl}
       src={videoSrc}

@@ -7,7 +7,7 @@ use anyhow::Result;
 use crossbeam_queue::ArrayQueue;
 
 use super::CaptureTarget;
-use super::dxgi::FrameSource;
+use crate::capture::create_capture_source;
 
 #[derive(Clone)]
 pub struct VideoFrame {
@@ -84,7 +84,7 @@ pub fn spawn_capture_loop(
     thread::Builder::new()
         .name("recast-capture".into())
         .spawn(move || {
-            let mut source = FrameSource::new(&target)?;
+            let mut source = create_capture_source(&target)?;
             while !stop_flag.load(Ordering::Acquire) {
                 match source.capture_next(Duration::from_millis(16))? {
                     Some(bytes) => {
