@@ -7,7 +7,9 @@
     "source-selector",
     "recordings",
     "recording-panel",
-    "editor-*"
+    "editor-*",
+    "device-picker-*",
+    "camera-preview"
   ],
   "permissions": [
     "core:default",

@@ -7,6 +7,8 @@ use tauri::{AppHandle, Manager, State};
 use xcap::{Monitor, Window};
 
 use super::ffmpeg::{encode_thumbnail_base64, make_thumbnail};
+use serde::Serialize;
+
 use super::types::{AppConfig, AppState, DisplayInfo, WindowInfo};
 
 fn config_path(app: &AppHandle) -> PathBuf {
@@ -115,6 +117,163 @@ pub fn get_windows() -> Result<Vec<WindowInfo>, String> {
             thumbnail: capture_window_thumbnail(window),
         })
         .collect())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// List available audio input (microphone) devices.
+#[tauri::command]
+pub fn get_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    #[cfg(windows)]
+    {
+        get_audio_devices_windows()
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(windows)]
+fn get_audio_devices_windows() -> Result<Vec<AudioDeviceInfo>, String> {
+    use windows::Win32::Media::Audio::*;
+    use windows::Win32::System::Com::*;
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                .map_err(|e| format!("failed to create device enumerator: {e}"))?;
+
+        let default_id = enumerator
+            .GetDefaultAudioEndpoint(eCapture, eConsole)
+            .ok()
+            .and_then(|d| d.GetId().ok())
+            .map(|pwstr| pwstr.to_string().unwrap_or_default());
+
+        let collection = enumerator
+            .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
+            .map_err(|e| format!("failed to enumerate audio devices: {e}"))?;
+
+        let count = collection.GetCount().map_err(|e| e.to_string())?;
+        let mut devices = Vec::new();
+
+        for i in 0..count {
+            let Ok(device) = collection.Item(i) else { continue };
+
+            let id = device
+                .GetId()
+                .ok()
+                .and_then(|pwstr| pwstr.to_string().ok())
+                .unwrap_or_default();
+
+            // Use device friendly name from endpoint properties.
+            let name = get_device_name(&device)
+                .unwrap_or_else(|| format!("Microphone {}", i + 1));
+
+            let is_default = default_id.as_deref() == Some(&id);
+
+            devices.push(AudioDeviceInfo {
+                id,
+                name,
+                is_default,
+            });
+        }
+
+        Ok(devices)
+    }
+}
+
+/// Extract the friendly name from an audio device using its property store.
+#[cfg(windows)]
+fn get_device_name(device: &windows::Win32::Media::Audio::IMMDevice) -> Option<String> {
+    use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
+    use windows::core::GUID;
+
+    unsafe {
+        let store: IPropertyStore = device.OpenPropertyStore(windows::Win32::System::Com::STGM(0)).ok()?;
+        // PKEY_Device_FriendlyName = {a45c254e-df1c-4efd-8020-67d146a850e0}, 14
+        let key = PROPERTYKEY {
+            fmtid: GUID::from_values(
+                0xa45c254e, 0xdf1c, 0x4efd, [0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0],
+            ),
+            pid: 14,
+        };
+        let value = store.GetValue(&key).ok()?;
+        // The value is a VT_LPWSTR PROPVARIANT. Use its Display/Debug impl.
+        let display = format!("{}", value.to_string());
+        if display.is_empty() || display == "EMPTY" {
+            None
+        } else {
+            Some(display)
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraDeviceInfo {
+    pub id: String,
+    pub name: String,
+}
+
+/// List available camera/video capture devices.
+#[tauri::command]
+pub fn get_camera_devices() -> Result<Vec<CameraDeviceInfo>, String> {
+    // Use ffmpeg to list DirectShow video devices on Windows.
+    let output = Command::new(crate::ffmpeg::ffmpeg_path())
+        .args([
+            "-hide_banner",
+            "-list_devices",
+            "true",
+            "-f",
+            "dshow",
+            "-i",
+            "dummy",
+        ])
+        .output()
+        .map_err(|e| format!("failed to list camera devices: {e}"))?;
+
+    // ffmpeg prints device list to stderr (it "fails" because "dummy" isn't a real input).
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut devices = Vec::new();
+
+    // Parse lines like: [dshow @ ...] "Device Name" (video)
+    let mut in_video_section = false;
+    for line in stderr.lines() {
+        if line.contains("DirectShow video devices") {
+            in_video_section = true;
+            continue;
+        }
+        if line.contains("DirectShow audio devices") {
+            in_video_section = false;
+            continue;
+        }
+        if in_video_section {
+            // Extract device name between quotes.
+            if let Some(start) = line.find('"') {
+                if let Some(end) = line[start + 1..].find('"') {
+                    let name = &line[start + 1..start + 1 + end];
+                    // Skip "alternative name" lines.
+                    if !line.contains("Alternative name") {
+                        devices.push(CameraDeviceInfo {
+                            id: name.to_string(),
+                            name: name.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(devices)
 }
 
 #[tauri::command]

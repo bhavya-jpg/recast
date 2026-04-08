@@ -64,6 +64,8 @@ pub fn run() {
             commands::render_preview_frame,
             commands::generate_thumbnails,
             commands::export_video,
+            commands::get_audio_devices,
+            commands::get_camera_devices,
             commands::autosave_project,
             commands::clear_autosave,
             commands::get_recoverable_sessions

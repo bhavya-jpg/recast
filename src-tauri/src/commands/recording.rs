@@ -7,20 +7,21 @@ use super::system::get_active_output_dir;
 use super::types::{AppState, RecordingEntry};
 use crate::project::writer::{ProjectWriteRequest, write_project};
 use crate::project::{ProjectMetadata, ProjectVideoMetadata};
-use crate::recording::CaptureTarget;
+use crate::recording::{CaptureTarget, RecordingOptions};
 use crate::render::graph::RenderState;
 
 #[tauri::command]
 pub fn start_recording(
     target_type: String,
     target_id: u32,
+    options: Option<RecordingOptions>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let target = CaptureTarget::resolve(&target_type, target_id).map_err(|e| e.to_string())?;
     let output_dir = get_active_output_dir(&state);
     state
         .recording_manager
-        .start(target, output_dir)
+        .start(target, output_dir, options.unwrap_or_default())
         .map_err(|e| e.to_string())
 }
 

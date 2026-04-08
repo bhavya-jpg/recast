@@ -156,6 +156,39 @@ pub struct RecordingArtifacts {
     pub stats: RecordingStats,
 }
 
+/// Options controlling what gets captured in a recording session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingOptions {
+    /// Capture system/loopback audio (what you hear).
+    #[serde(default = "default_true")]
+    pub system_audio: bool,
+    /// Capture microphone input.
+    #[serde(default)]
+    pub microphone: bool,
+    /// Microphone device ID (None = default device).
+    #[serde(default)]
+    pub microphone_device_id: Option<String>,
+    /// Capture camera (future).
+    #[serde(default)]
+    pub camera: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for RecordingOptions {
+    fn default() -> Self {
+        Self {
+            system_audio: true,
+            microphone: false,
+            microphone_device_id: None,
+            camera: false,
+        }
+    }
+}
+
 // ── Recording session orchestration ─────────────────────────────────────
 
 pub struct RecordingManager {
@@ -186,7 +219,7 @@ struct RecordingSession {
 }
 
 impl RecordingManager {
-    pub fn start(&self, target: CaptureTarget, output_dir: PathBuf) -> Result<()> {
+    pub fn start(&self, target: CaptureTarget, output_dir: PathBuf, options: RecordingOptions) -> Result<()> {
         let mut guard = self.session.lock();
         if guard.is_some() {
             return Err(anyhow!("recording is already running"));
@@ -230,8 +263,8 @@ impl RecordingManager {
         // the error and continue without audio — the recording is still valid.
         let audio_session = match AudioCaptureSession::start(AudioCaptureConfig {
             output_path: audio_path.clone(),
-            capture_loopback: true,
-            capture_microphone: false,
+            capture_loopback: options.system_audio,
+            capture_microphone: options.microphone,
         }) {
             Ok(session) => Some(session),
             Err(e) => {

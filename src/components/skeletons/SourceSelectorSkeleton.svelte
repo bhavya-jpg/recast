@@ -2,26 +2,21 @@
   import { Skeleton } from "$components/ui/skeleton";
 </script>
 
-<div class="p-4 space-y-4">
-  <!-- Tab bar -->
-  <div class="flex gap-2">
-    <Skeleton class="h-8 w-24 rounded-md" />
-    <Skeleton class="h-8 w-24 rounded-md" />
-  </div>
-
-  <!-- Source cards grid -->
-  <div class="grid grid-cols-2 gap-3">
-    {#each Array(4) as _, i}
-      <div
-        class="rounded-xl border border-border bg-card overflow-hidden"
-        style="animation-delay: {i * 50}ms"
-      >
-        <Skeleton class="aspect-video w-full rounded-none" />
-        <div class="p-3 space-y-2">
-          <Skeleton class="h-4 w-3/4" />
-          <Skeleton class="h-3 w-1/2" />
-        </div>
+<div class="grid grid-cols-2 gap-2 mt-4">
+  {#each Array(6) as _, i}
+    <div
+      class="group relative overflow-hidden rounded-lg border border-card/6 bg-card/3"
+    >
+      <!-- Thumbnail -->
+      <div class="relative aspect-video w-full overflow-hidden bg-card/30">
+        <Skeleton class="h-full w-full rounded-none bg-card/5" />
       </div>
-    {/each}
-  </div>
+
+      <!-- Label -->
+      <div class="px-2.5 py-2">
+        <Skeleton class="h-3.5 w-3/4 bg-card/10 rounded-sm" />
+        <Skeleton class="mt-1 h-3 w-1/3 bg-card/5 rounded-sm" />
+      </div>
+    </div>
+  {/each}
 </div>

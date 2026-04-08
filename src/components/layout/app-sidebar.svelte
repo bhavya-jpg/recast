@@ -6,7 +6,7 @@
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
   import { Button } from "$components/ui/button";
-  import { Hexagon, LayoutDashboard, Radio, Settings } from "@lucide/svelte";
+  import { Hexagon, LayoutDashboard, Radio, Settings, SlidersHorizontal } from "@lucide/svelte";
   import type { ComponentProps } from "svelte";
 
   let currentPath = $derived(page.url.pathname);
@@ -15,6 +15,11 @@
       title: "Dashboard",
       href: "/",
       icon: LayoutDashboard,
+    },
+    {
+      title: "Profiles",
+      href: "/profiles",
+      icon: SlidersHorizontal,
     },
     {
       title: "Settings",
@@ -33,7 +38,7 @@
       return;
     }
 
-    const panelWidth = 360;
+    const panelWidth = 460;
     const panelHeight = 44;
     const panelWin = new WebviewWindow("recording-panel", {
       url: "/panel",

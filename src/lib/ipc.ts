@@ -83,8 +83,39 @@ export function openFileLocation(path: string): Promise<void> {
 
 //  Recording commands 
 
-export function startRecording(targetType: string, targetId: number): Promise<void> {
-	return invoke("start_recording", { targetType, targetId });
+export interface RecordingOptions {
+	systemAudio?: boolean;
+	microphone?: boolean;
+	microphoneDeviceId?: string | null;
+	camera?: boolean;
+	cameraDeviceId?: string | null;
+}
+
+export interface AudioDeviceInfo {
+	id: string;
+	name: string;
+	isDefault: boolean;
+}
+
+export interface CameraDeviceInfo {
+	id: string;
+	name: string;
+}
+
+export function startRecording(
+	targetType: string,
+	targetId: number,
+	options?: RecordingOptions,
+): Promise<void> {
+	return invoke("start_recording", { targetType, targetId, options: options ?? null });
+}
+
+export function getAudioDevices(): Promise<AudioDeviceInfo[]> {
+	return invoke<AudioDeviceInfo[]>("get_audio_devices");
+}
+
+export function getCameraDevices(): Promise<CameraDeviceInfo[]> {
+	return invoke<CameraDeviceInfo[]>("get_camera_devices");
 }
 
 export function stopRecording(): Promise<string> {

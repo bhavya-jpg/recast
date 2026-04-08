@@ -1,167 +1,371 @@
 <script lang="ts">
-    import { getDisplays, startRecording, stopRecording } from "$lib/ipc";
-    import { emit, listen } from "@tauri-apps/api/event";
-    import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-    import { getCurrentWindow } from "@tauri-apps/api/window";
-    import { Monitor, AppWindow as AppWindowIcon, X, ChevronDown } from "@lucide/svelte";
-    import { onMount } from "svelte";
+  import {
+    getAudioDevices,
+    getCameraDevices,
+    getDisplays,
+    startRecording,
+    stopRecording,
+    type RecordingOptions,
+  } from "$lib/ipc";
+  import {
+    AppWindow,
+    Camera,
+    CameraOff,
+    ChevronDown,
+    Circle,
+    Mic,
+    MicOff,
+    Monitor,
+    Square,
+    Volume2,
+    VolumeOff,
+    X,
+  } from "@lucide/svelte";
+  import { emit, listen } from "@tauri-apps/api/event";
+  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onMount } from "svelte";
 
-    type TargetSource = {
-        type: "monitor" | "window";
-        id: number;
-        label: string;
-    };
+  type TargetSource = {
+    type: "monitor" | "window";
+    id: number;
+    label: string;
+  };
 
-    let selectedSource: TargetSource | null = $state(null);
-    let isRecording = $state(false);
-    let recordingStartTime: number | null = $state(null);
-    let now = $state(Date.now());
+  let selectedSource: TargetSource | null = $state(null);
+  let isRecording = $state(false);
+  let recordingStartTime: number | null = $state(null);
+  let now = $state(Date.now());
 
-    onMount(() => {
-        const timer = window.setInterval(() => {
-            if (isRecording) now = Date.now();
-        }, 1000);
+  // Device toggles
+  let systemAudioOn = $state(true);
+  let micOn = $state(false);
+  let cameraOn = $state(false);
 
-        const unlisten = listen<TargetSource>("source-selected", (event) => {
-            selectedSource = event.payload;
-        });
+  // Selected devices
+  let selectedMicId = $state<string | null>(null);
+  let selectedMicName = $state("Default");
+  let selectedCameraId = $state<string | null>(null);
+  let selectedCameraName = $state("Default");
 
-        // Non-blocking display fetch
-        getDisplays()
-            .then((displays) => {
-                if (displays.length > 0 && !selectedSource) {
-                    const d = displays[0];
-                    selectedSource = {
-                        type: "monitor",
-                        id: d.id,
-                        label: d.isPrimary ? "Primary Display" : `Display ${d.id}`,
-                    };
-                }
-            })
-            .catch(() => {});
+  onMount(() => {
+    const timer = window.setInterval(() => {
+      if (isRecording) now = Date.now();
+    }, 1000);
 
-        return () => {
-            window.clearInterval(timer);
-            unlisten.then((fn) => fn());
-        };
+    const unlistenSource = listen<TargetSource>("source-selected", (event) => {
+      selectedSource = event.payload;
     });
 
-    function openSourceSelector() {
-        if (isRecording) return;
-        WebviewWindow.getByLabel("source-selector").then(async (existing) => {
-            if (existing) {
-                await existing.setFocus();
-                return;
-            }
-            const win = new WebviewWindow("source-selector", {
-                url: "/select",
-                title: "Select Source",
-                width: 560,
-                height: 440,
-                center: true,
-                decorations: false,
-                resizable: false,
-            });
-            win.once("tauri://error", (e) => console.error(e));
-        });
-    }
-
-    function closePanel() {
-        getCurrentWindow().close();
-    }
-
-    async function toggleRecording() {
-        if (isRecording) {
-            try {
-                await stopRecording();
-                isRecording = false;
-                recordingStartTime = null;
-                emit("refresh-recordings");
-            } catch (e) {
-                alert(`Stop failed: ${e}\n\nMake sure ffmpeg is installed.`);
-            }
-        } else {
-            if (!selectedSource) return;
-            try {
-                await startRecording(selectedSource.type, selectedSource.id);
-                isRecording = true;
-                now = Date.now();
-                recordingStartTime = now;
-            } catch (e) {
-                alert(`Recording failed: ${e}`);
-            }
+    // Listen for device selection from picker windows
+    const unlistenDevice = listen<{ type: string; id: string | null; name: string }>(
+      "device-selected",
+      (event) => {
+        const { type, id, name } = event.payload;
+        if (type === "mic") {
+          if (id) {
+            micOn = true;
+            selectedMicId = id;
+            selectedMicName = name;
+          } else {
+            micOn = false;
+          }
+        } else if (type === "camera") {
+          if (id) {
+            cameraOn = true;
+            selectedCameraId = id;
+            selectedCameraName = name;
+            openCameraPreview(id);
+          } else {
+            cameraOn = false;
+            closeCameraPreview();
+          }
         }
-    }
+      },
+    );
 
-    const elapsed = $derived(
-        isRecording && recordingStartTime
-            ? Math.floor((now - recordingStartTime) / 1000)
-            : 0,
-    );
-    const timer = $derived(
-        `${Math.floor(elapsed / 60).toString().padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
-    );
+    // Load defaults non-blocking
+    getDisplays()
+      .then((displays) => {
+        if (displays.length > 0 && !selectedSource) {
+          const d = displays[0];
+          selectedSource = {
+            type: "monitor",
+            id: d.id,
+            label: d.isPrimary ? "Primary Display" : `Display ${d.id}`,
+          };
+        }
+      })
+      .catch(() => {});
+
+    getAudioDevices()
+      .then((devices) => {
+        const def = devices.find((d) => d.isDefault);
+        if (def) {
+          selectedMicId = def.id;
+          selectedMicName = def.name;
+        }
+      })
+      .catch(() => {});
+
+    getCameraDevices()
+      .then((devices) => {
+        if (devices.length > 0) {
+          selectedCameraId = devices[0].id;
+          selectedCameraName = devices[0].name;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      window.clearInterval(timer);
+      unlistenSource.then((fn) => fn());
+      unlistenDevice.then((fn) => fn());
+    };
+  });
+
+  function openSourceSelector() {
+    if (isRecording) return;
+    WebviewWindow.getByLabel("source-selector").then(async (existing) => {
+      if (existing) {
+        await existing.setFocus();
+        return;
+      }
+      new WebviewWindow("source-selector", {
+        url: "/select",
+        title: "Select Source",
+        width: 560,
+        height: 440,
+        center: true,
+        decorations: false,
+        resizable: false,
+      });
+    });
+  }
+
+  function openDevicePicker(type: "mic" | "camera") {
+    if (isRecording) return;
+    const label = `device-picker-${type}`;
+    const selected = type === "mic" ? selectedMicId : selectedCameraId;
+    WebviewWindow.getByLabel(label).then(async (existing) => {
+      if (existing) {
+        await existing.setFocus();
+        return;
+      }
+      new WebviewWindow(label, {
+        url: `/device-picker?type=${type}&selected=${selected ?? ""}`,
+        title: `Select ${type === "mic" ? "Microphone" : "Camera"}`,
+        width: 320,
+        height: 340,
+        center: true,
+        decorations: false,
+        resizable: false,
+      });
+    });
+  }
+
+  function openCameraPreview(deviceId: string) {
+    WebviewWindow.getByLabel("camera-preview").then(async (existing) => {
+      if (existing) {
+        await existing.close();
+      }
+      new WebviewWindow("camera-preview", {
+        url: `/camera-preview?deviceId=${encodeURIComponent(deviceId)}`,
+        title: "Camera",
+        width: 200,
+        height: 200,
+        decorations: false,
+        transparent: true,
+        alwaysOnTop: true,
+        resizable: true,
+        x: 40,
+        y: 40,
+      });
+    });
+  }
+
+  function closeCameraPreview() {
+    emit("camera-stop");
+    WebviewWindow.getByLabel("camera-preview").then(async (existing) => {
+      if (existing) await existing.close();
+    });
+  }
+
+  function closePanel() {
+    closeCameraPreview();
+    getCurrentWindow().close();
+  }
+
+  function toggleMic() {
+    if (isRecording) return;
+    if (micOn) {
+      micOn = false;
+    } else {
+      openDevicePicker("mic");
+    }
+  }
+
+  function toggleCamera() {
+    if (isRecording) return;
+    if (cameraOn) {
+      cameraOn = false;
+      closeCameraPreview();
+    } else {
+      openDevicePicker("camera");
+    }
+  }
+
+  async function toggleRecording() {
+    if (isRecording) {
+      try {
+        await stopRecording();
+        isRecording = false;
+        recordingStartTime = null;
+        emit("refresh-recordings");
+      } catch (e) {
+        alert(`Stop failed: ${e}\n\nMake sure ffmpeg is installed.`);
+      }
+    } else {
+      if (!selectedSource) return;
+      const options: RecordingOptions = {
+        systemAudio: systemAudioOn,
+        microphone: micOn,
+        microphoneDeviceId: micOn ? selectedMicId : null,
+        camera: cameraOn,
+        cameraDeviceId: cameraOn ? selectedCameraId : null,
+      };
+      try {
+        await startRecording(selectedSource.type, selectedSource.id, options);
+        isRecording = true;
+        now = Date.now();
+        recordingStartTime = now;
+      } catch (e) {
+        alert(`Recording failed: ${e}`);
+      }
+    }
+  }
+
+  const elapsed = $derived(
+    isRecording && recordingStartTime
+      ? Math.floor((now - recordingStartTime) / 1000)
+      : 0,
+  );
+  const timer = $derived(
+    `${Math.floor(elapsed / 60).toString().padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
+  );
 </script>
 
 <div
-    class="h-full w-full flex items-center gap-1.5 px-3 rounded-full bg-neutral-900/95 backdrop-blur-2xl text-white shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] overflow-hidden select-none"
-    data-tauri-drag-region
+  class="h-full w-full flex items-center gap-1 px-1.5 bg-neutral-900/95 backdrop-blur-2xl text-white shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] select-none rounded-full"
+  data-tauri-drag-region
 >
-    <!-- Record button -->
-    <button
-        onclick={toggleRecording}
-        onmousedown={(e) => e.stopPropagation()}
-        class="size-6 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 active:scale-90
-            {isRecording
-            ? 'bg-red-500 hover:bg-red-400'
-            : 'bg-linear-to-br from-violet-500 to-fuchsia-500 hover:from-violet-400 hover:to-fuchsia-400'}"
-        title={isRecording ? "Stop Recording" : "Start Recording"}
-    >
-        {#if isRecording}
-            <div class="size-2 rounded-sm bg-white"></div>
-        {:else}
-            <div class="size-2 rounded-full bg-white"></div>
-        {/if}
-    </button>
+  <!-- Record / Stop -->
+  <button
+    onclick={toggleRecording}
+    onmousedown={(e) => e.stopPropagation()}
+    class="size-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 active:scale-90
+      {isRecording
+      ? 'bg-red-500/15 hover:bg-red-500/25 text-red-400'
+      : 'bg-white/8 hover:bg-white/12 text-white/90'}"
+    title={isRecording ? "Stop Recording" : "Start Recording"}
+  >
+    {#if isRecording}
+      <Square size={10} strokeWidth={3} fill="currentColor" />
+    {:else}
+      <Circle size={12} strokeWidth={0} fill="currentColor" class="text-red-500" />
+    {/if}
+  </button>
 
-    <!-- Divider -->
-    <div class="w-px h-3.5 bg-white/10 shrink-0"></div>
+  <div class="w-px h-3.5 bg-white/8 shrink-0"></div>
 
-    <!-- Source selector -->
-    <button
-        disabled={isRecording}
-        onclick={openSourceSelector}
-        onmousedown={(e) => e.stopPropagation()}
-        class="flex items-center gap-1.5 min-w-0 px-1.5 py-1 rounded-md transition-colors hover:bg-white/8 disabled:opacity-40 disabled:pointer-events-none"
-    >
-        {#if selectedSource?.type === "window"}
-            <AppWindowIcon size={12} strokeWidth={2} class="shrink-0 text-white/50" />
-        {:else}
-            <Monitor size={12} strokeWidth={2} class="shrink-0 text-white/50" />
-        {/if}
-        <span class="text-[11px] font-medium text-white/80 truncate max-w-28">
-            {selectedSource?.label ?? "Select source"}
-        </span>
-        {#if !isRecording}
-            <ChevronDown size={10} class="shrink-0 text-white/30" />
-        {/if}
-    </button>
-
-    <!-- Timer -->
-    <span
-        class="font-mono text-[11px] tabular-nums text-white/40 shrink-0 ml-auto"
-        data-tauri-drag-region
-    >
-        {timer}
+  <!-- Source -->
+  <button
+    disabled={isRecording}
+    onclick={openSourceSelector}
+    onmousedown={(e) => e.stopPropagation()}
+    class="flex items-center gap-1 min-w-0 px-1.5 py-1 rounded-md transition-colors hover:bg-white/6 disabled:opacity-35 disabled:pointer-events-none"
+  >
+    {#if selectedSource?.type === "window"}
+      <AppWindow size={11} strokeWidth={2} class="shrink-0 text-white/40" />
+    {:else}
+      <Monitor size={11} strokeWidth={2} class="shrink-0 text-white/40" />
+    {/if}
+    <span class="text-[10.5px] font-medium text-white/70 truncate max-w-24">
+      {selectedSource?.label ?? "Select source"}
     </span>
+    {#if !isRecording}
+      <ChevronDown size={9} class="shrink-0 text-white/25" />
+    {/if}
+  </button>
 
-    <!-- Close -->
+  <div class="w-px h-3.5 bg-white/8 shrink-0"></div>
+
+  <!-- Device toggles -->
+  <div class="flex items-center gap-0.5 shrink-0">
+    <!-- System audio (simple toggle) -->
     <button
-        onclick={closePanel}
-        onmousedown={(e) => e.stopPropagation()}
-        class="size-5 rounded-full flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/8 transition-colors shrink-0"
-        title="Close"
+      disabled={isRecording}
+      onclick={() => (systemAudioOn = !systemAudioOn)}
+      onmousedown={(e) => e.stopPropagation()}
+      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
+        {systemAudioOn ? 'text-blue-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+      title={systemAudioOn ? "System audio: on" : "System audio: off"}
     >
-        <X size={11} strokeWidth={2.5} />
+      {#if systemAudioOn}
+        <Volume2 size={12} strokeWidth={2} />
+      {:else}
+        <VolumeOff size={12} strokeWidth={2} />
+      {/if}
     </button>
+
+    <!-- Mic (click = open device picker window) -->
+    <button
+      disabled={isRecording}
+      onclick={toggleMic}
+      onmousedown={(e) => e.stopPropagation()}
+      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
+        {micOn ? 'text-emerald-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+      title={micOn ? `Mic: ${selectedMicName}` : "Microphone: off — click to select"}
+    >
+      {#if micOn}
+        <Mic size={12} strokeWidth={2} />
+      {:else}
+        <MicOff size={12} strokeWidth={2} />
+      {/if}
+    </button>
+
+    <!-- Camera (click = open device picker + camera preview) -->
+    <button
+      disabled={isRecording}
+      onclick={toggleCamera}
+      onmousedown={(e) => e.stopPropagation()}
+      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
+        {cameraOn ? 'text-violet-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+      title={cameraOn ? `Camera: ${selectedCameraName}` : "Camera: off — click to select"}
+    >
+      {#if cameraOn}
+        <Camera size={12} strokeWidth={2} />
+      {:else}
+        <CameraOff size={12} strokeWidth={2} />
+      {/if}
+    </button>
+  </div>
+
+  <!-- Timer -->
+  <span
+    class="font-mono text-[10.5px] tabular-nums text-white/30 shrink-0 ml-auto"
+    data-tauri-drag-region
+  >
+    {timer}
+  </span>
+
+  <!-- Close -->
+  <button
+    onclick={closePanel}
+    onmousedown={(e) => e.stopPropagation()}
+    class="size-5 rounded-full flex items-center justify-center text-white/20 hover:text-white/50 hover:bg-white/6 transition-colors shrink-0"
+    title="Close"
+  >
+    <X size={10} strokeWidth={2.5} />
+  </button>
 </div>
