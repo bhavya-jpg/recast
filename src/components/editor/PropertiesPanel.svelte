@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Badge } from "$components/ui/badge";
+  import { Button } from "$components/ui/button";
   import * as Tabs from "$components/ui/tabs";
   import * as Tooltip from "$components/ui/tooltip";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
@@ -13,13 +15,7 @@
 
   type PanelTab = "background" | "cursor" | "audio";
 
-  type PanelDefinition = {
-    id: PanelTab;
-    label: string;
-    icon: typeof ImageIcon;
-  };
-
-  const tabs: PanelDefinition[] = [
+  const tabs: { id: PanelTab; label: string; icon: typeof ImageIcon }[] = [
     { id: "background", label: "Background", icon: ImageIcon },
     { id: "cursor", label: "Cursor", icon: MousePointer },
     { id: "audio", label: "Audio", icon: Volume2 },
@@ -29,40 +25,30 @@
 
   function formatDuration(seconds: number | undefined) {
     if (!seconds || seconds <= 0) return "--:--";
-    const totalSeconds = Math.round(seconds);
-    const minutes = Math.floor(totalSeconds / 60);
-    const remainderSeconds = totalSeconds % 60;
-    return `${minutes}:${remainderSeconds.toString().padStart(2, "0")}`;
+    const t = Math.round(seconds);
+    return `${Math.floor(t / 60)}:${(t % 60).toString().padStart(2, "0")}`;
   }
 
   function formatResolution() {
     if (!store.metadata?.width || !store.metadata?.height) return "Unknown";
-    return `${store.metadata.width} x ${store.metadata.height}`;
+    return `${store.metadata.width}×${store.metadata.height}`;
   }
 
-  function formatFrameRate() {
+  function formatFps() {
     if (!store.metadata?.fps) return "--";
     return `${Math.round(store.metadata.fps)} fps`;
   }
 </script>
 
 <div class="flex flex-col h-full bg-card">
-  <!-- Metadata badges -->
-  <div class="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border/60">
-    <div class="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {formatDuration(store.metadata?.duration)}
-    </div>
-    <div class="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {formatResolution()}
-    </div>
-    <div class="rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {formatFrameRate()}
-    </div>
+  <div class="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-border">
+    <Badge variant="secondary" class="text-[10px]">{formatDuration(store.metadata?.duration)}</Badge>
+    <Badge variant="secondary" class="text-[10px]">{formatResolution()}</Badge>
+    <Badge variant="secondary" class="text-[10px]">{formatFps()}</Badge>
   </div>
 
-  <!-- Icon tab bar -->
   <Tabs.Root value={tabs[0].id} class="flex flex-col flex-1 min-h-0">
-    <div class="shrink-0 flex items-center gap-0.5 px-2 py-1.5 border-b border-border/60">
+    <div class="shrink-0 flex items-center gap-0.5 px-2 py-1.5 border-b border-border">
       <Tabs.List class="bg-transparent p-0 h-auto gap-0.5">
         {#each tabs as tab}
           {@const Icon = tab.icon}
@@ -81,45 +67,16 @@
       </Tabs.List>
     </div>
 
-    <Tabs.Content
-      value="background"
-      class="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="background" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <BackgroundPicker {store} />
     </Tabs.Content>
 
-    <Tabs.Content
-      value="cursor"
-      class="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="cursor" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <CursorPanel {store} />
     </Tabs.Content>
 
-    <Tabs.Content
-      value="audio"
-      class="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-3"
-    >
+    <Tabs.Content value="audio" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <AudioPanel {store} />
     </Tabs.Content>
   </Tabs.Root>
 </div>
-
-<style>
-  :global(.custom-scrollbar)::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  :global(.custom-scrollbar)::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  :global(.custom-scrollbar)::-webkit-scrollbar-thumb {
-    background: rgba(120, 120, 128, 0.35);
-    border-radius: 999px;
-  }
-
-  :global(.custom-scrollbar) {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
-  }
-</style>

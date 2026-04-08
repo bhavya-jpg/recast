@@ -41,7 +41,6 @@
   let isRenderingPreview = $state(false);
   let error = $state("");
   let loadedPath = $state("");
-  let loadStage = $state("Opening project");
   let previewToken = 0;
   let thumbnailToken = 0;
   let lastPreviewKey = "";
@@ -189,7 +188,6 @@
 
   function handleVideoReady() {
     handleVideoLoadedMetadata();
-    loadStage = "Ready";
     isLoading = false;
     startAutosave();
     void renderPreview(true);
@@ -206,7 +204,6 @@
   async function loadDocument() {
     error = "";
     isLoading = true;
-    loadStage = "Opening project";
     previewSrc = "";
     previewFallbackSrc = "";
     videoSrc = "";
@@ -216,18 +213,13 @@
     store.thumbnailStrip = [];
 
     try {
-      loadStage = "Reading recording metadata";
       const document = await loadEditorDocument(data.filePath);
-
       documentPath = document.projectPath;
       store.videoPath = document.projectPath;
       store.metadata = document.metadata;
       store.loadRenderState(document.renderState);
-      loadStage = "Building timeline";
       void loadThumbnailStrip(document.projectPath);
-
       videoSrc = convertFileSrc(document.mediaPath);
-      loadStage = "Rendering preview";
       await tick();
       videoEl?.load();
     } catch (err) {
@@ -376,6 +368,7 @@
         <div class="flex min-h-0 flex-1 items-center justify-center p-4 pb-2">
           <VideoPreview
             {store}
+            {videoEl}
             {previewSrc}
             fallbackSrc={previewFallbackSrc}
             isRendering={isRenderingPreview}
@@ -394,7 +387,6 @@
     </div>
   {/if}
 
-  <!-- Hidden video element: always present so it can load during skeleton phase -->
   {#if videoSrc}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
@@ -406,7 +398,7 @@
       onloadeddata={handleVideoReady}
       oncanplay={handleVideoReady}
       onerror={handleVideoError}
-      class="pointer-events-none absolute -z-10 h-0 w-0 opacity-0"
+      class="absolute -z-10 h-0 w-0 opacity-0"
       playsinline
       preload="auto"
       muted
@@ -414,31 +406,19 @@
   {/if}
 
   {#if store.isExporting}
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200"
-    >
-      <div
-        class="animate-in zoom-in-95 flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-8 shadow-2xl duration-300"
-      >
-        <div
-          class="h-10 w-10 animate-spin rounded-full border-3 border-primary border-t-transparent"
-        ></div>
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div class="animate-in zoom-in-95 flex flex-col items-center gap-4 rounded-2xl border border-border bg-card p-8 shadow-2xl duration-300">
+        <div class="h-10 w-10 animate-spin rounded-full border-3 border-primary border-t-transparent"></div>
         <div class="text-center">
-          <p class="text-sm font-semibold text-foreground">
-            Exporting video...
-          </p>
+          <p class="text-sm font-semibold text-foreground">Exporting video...</p>
           <p class="mt-1 text-xs text-muted-foreground">
-            {store.exportFormat.toUpperCase()} - {store.exportProgress !== null
-              ? `${Math.round(store.exportProgress)}%`
-              : "Preparing..."}
+            {store.exportFormat.toUpperCase()} &middot;
+            {store.exportProgress !== null ? `${Math.round(store.exportProgress)}%` : "Preparing..."}
           </p>
         </div>
         {#if store.exportProgress !== null}
           <div class="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
-            <div
-              class="h-full rounded-full bg-linear-to-r from-primary to-blue-400 transition-[width] duration-300"
-              style="width: {store.exportProgress}%"
-            ></div>
+            <div class="h-full rounded-full bg-primary transition-[width] duration-300" style="width: {store.exportProgress}%"></div>
           </div>
         {/if}
       </div>

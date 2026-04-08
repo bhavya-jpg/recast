@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Button from "$components/ui/button/button.svelte";
   import {
     getAudioDevices,
     getCameraDevices,
@@ -256,25 +257,24 @@
 </script>
 
 <div
-  class="h-full w-full flex items-center gap-1 px-1.5 bg-neutral-900/95 backdrop-blur-2xl text-white shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] select-none rounded-full"
+  class="min-h-dvh h-full w-full flex items-center gap-1 px-1.5 backdrop-blur-2xl bg-card shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] select-none"
   data-tauri-drag-region
 >
   <!-- Record / Stop -->
-  <button
+  <Button
+  size="icon"
     onclick={toggleRecording}
     onmousedown={(e) => e.stopPropagation()}
-    class="size-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 active:scale-90
-      {isRecording
-      ? 'bg-red-500/15 hover:bg-red-500/25 text-red-400'
-      : 'bg-white/8 hover:bg-white/12 text-white/90'}"
+    variant={isRecording ? "destructive" : "ghost"}
+    class="size-7 rounded-full shrink-0 transition-all duration-200 active:scale-90"
     title={isRecording ? "Stop Recording" : "Start Recording"}
   >
     {#if isRecording}
-      <Square size={10} strokeWidth={3} fill="currentColor" />
+      <Square size={10} strokeWidth={0} fill="currentColor" />
     {:else}
-      <Circle size={12} strokeWidth={0} fill="currentColor" class="text-red-500" />
+      <Circle size={10} strokeWidth={0} fill="currentColor" class="text-red-500" />
     {/if}
-  </button>
+  </Button>
 
   <div class="w-px h-3.5 bg-white/8 shrink-0"></div>
 
@@ -283,18 +283,18 @@
     disabled={isRecording}
     onclick={openSourceSelector}
     onmousedown={(e) => e.stopPropagation()}
-    class="flex items-center gap-1 min-w-0 px-1.5 py-1 rounded-md transition-colors hover:bg-white/6 disabled:opacity-35 disabled:pointer-events-none"
+    class="flex items-center gap-1 min-w-0 px-1.5 py-1 rounded-md transition-colors hover:bg-card/6 disabled:opacity-35 disabled:pointer-events-none"
   >
     {#if selectedSource?.type === "window"}
-      <AppWindow size={11} strokeWidth={2} class="shrink-0 text-white/40" />
+      <AppWindow size={11} strokeWidth={2} class="shrink-0 text-foreground/40" />
     {:else}
-      <Monitor size={11} strokeWidth={2} class="shrink-0 text-white/40" />
+      <Monitor size={11} strokeWidth={2} class="shrink-0 text-foreground/40" />
     {/if}
-    <span class="text-[10.5px] font-medium text-white/70 truncate max-w-24">
+    <span class="text-[10.5px] font-medium text-foreground/70 truncate max-w-24">
       {selectedSource?.label ?? "Select source"}
     </span>
     {#if !isRecording}
-      <ChevronDown size={9} class="shrink-0 text-white/25" />
+      <ChevronDown size={9} class="shrink-0 text-foreground/25" />
     {/if}
   </button>
 
@@ -308,7 +308,7 @@
       onclick={() => (systemAudioOn = !systemAudioOn)}
       onmousedown={(e) => e.stopPropagation()}
       class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
-        {systemAudioOn ? 'text-blue-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+        {systemAudioOn ? 'text-blue-400 hover:bg-card/8' : 'text-foreground/20 hover:bg-card/6'}"
       title={systemAudioOn ? "System audio: on" : "System audio: off"}
     >
       {#if systemAudioOn}
@@ -360,12 +360,14 @@
   </span>
 
   <!-- Close -->
-  <button
+  <Button
     onclick={closePanel}
     onmousedown={(e) => e.stopPropagation()}
-    class="size-5 rounded-full flex items-center justify-center text-white/20 hover:text-white/50 hover:bg-white/6 transition-colors shrink-0"
     title="Close"
+    variant="secondary"
+    size="icon-sm"
+    class="rounded-full"
   >
-    <X size={10} strokeWidth={2.5} />
-  </button>
+    <X size={10} class="shrink-0 size-3" />
+  </Button>
 </div>
