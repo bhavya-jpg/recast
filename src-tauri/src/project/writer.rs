@@ -15,6 +15,8 @@ pub struct ProjectWriteRequest {
     pub recording_path: PathBuf,
     pub cursor_path: PathBuf,
     pub audio_path: PathBuf,
+    pub microphone_path: Option<PathBuf>,
+    pub camera_path: Option<PathBuf>,
     pub edits_json: String,
 }
 
@@ -50,24 +52,38 @@ pub fn write_project(request: ProjectWriteRequest) -> Result<PathBuf> {
 fn write_project_inner(path: &Path, request: &ProjectWriteRequest) -> Result<()> {
     let file = File::create(path)?;
     let mut writer = ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
+    let deflated = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644);
+    // Use Stored for media files — H.264/PCM don't benefit from Deflate.
+    let stored = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o644);
 
-    writer.start_file("metadata.json", options)?;
+    writer.start_file("metadata.json", deflated)?;
     writer.write_all(serde_json::to_string_pretty(&request.metadata)?.as_bytes())?;
 
-    writer.start_file("cursor.json", options)?;
+    writer.start_file("cursor.json", deflated)?;
     copy_file(&request.cursor_path, &mut writer)?;
 
-    writer.start_file("audio.wav", options)?;
+    writer.start_file("audio.wav", stored)?;
     copy_file(&request.audio_path, &mut writer)?;
 
-    writer.start_file("edits.json", options)?;
+    writer.start_file("edits.json", deflated)?;
     writer.write_all(request.edits_json.as_bytes())?;
 
-    writer.start_file("recording.mp4", options)?;
+    writer.start_file("recording.mp4", stored)?;
     copy_file(&request.recording_path, &mut writer)?;
+
+    if let Some(ref mic_path) = request.microphone_path {
+        writer.start_file("microphone.wav", stored)?;
+        copy_file(mic_path, &mut writer)?;
+    }
+
+    if let Some(ref cam_path) = request.camera_path {
+        writer.start_file("camera.mp4", stored)?;
+        copy_file(cam_path, &mut writer)?;
+    }
 
     writer.finish()?;
     Ok(())

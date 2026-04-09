@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use xcap::{Monitor, Window};
 
-use crate::audio::{AudioCaptureConfig, AudioCaptureSession};
+use crate::audio::{AudioCaptureConfig, AudioCaptureSession, MicrophoneCaptureConfig, MicrophoneCaptureSession};
 use crate::cursor::{CursorTrack, spawn_cursor_capture, write_cursor_track};
 use crate::encoder::{EncoderConfig, spawn_encoder_loop};
 use pipeline::{PipelineSnapshot, RecordingPipeline, spawn_capture_loop};
@@ -152,6 +152,8 @@ pub struct RecordingArtifacts {
     pub recording_path: PathBuf,
     pub cursor_path: PathBuf,
     pub audio_path: PathBuf,
+    pub microphone_path: Option<PathBuf>,
+    pub camera_path: Option<PathBuf>,
     pub started_at_unix_ms: u64,
     pub stats: RecordingStats,
 }
@@ -169,9 +171,12 @@ pub struct RecordingOptions {
     /// Microphone device ID (None = default device).
     #[serde(default)]
     pub microphone_device_id: Option<String>,
-    /// Capture camera (future).
+    /// Capture camera video.
     #[serde(default)]
     pub camera: bool,
+    /// Camera device ID / DirectShow device name (None = first available).
+    #[serde(default)]
+    pub camera_device_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -185,6 +190,7 @@ impl Default for RecordingOptions {
             microphone: false,
             microphone_device_id: None,
             camera: false,
+            camera_device_id: None,
         }
     }
 }
@@ -210,6 +216,8 @@ struct RecordingSession {
     cursor_handle: JoinHandle<CursorTrack>,
     audio_session: Option<AudioCaptureSession>,
     audio_path: PathBuf,
+    microphone_session: Option<MicrophoneCaptureSession>,
+    camera_session: Option<crate::camera::CameraCaptureSession>,
     pipeline: RecordingPipeline,
     target: CaptureTarget,
     recording_path: PathBuf,
@@ -234,6 +242,8 @@ impl RecordingManager {
         let recording_path = output_dir.join(format!("{stem}.recording.mp4"));
         let cursor_path = output_dir.join(format!("{stem}.cursor.json"));
         let audio_path = output_dir.join(format!("{stem}.audio.wav"));
+        let microphone_path = output_dir.join(format!("{stem}.microphone.wav"));
+        let camera_path = output_dir.join(format!("{stem}.camera.mp4"));
         let started_at = Instant::now();
         let stop_flag = Arc::new(AtomicBool::new(false));
         let pipeline = RecordingPipeline::new(180);
@@ -259,18 +269,47 @@ impl RecordingManager {
 
         let cursor_handle = spawn_cursor_capture(stop_flag.clone(), started_at)?;
 
-        // Start real audio capture. If it fails (e.g., no audio device), log
-        // the error and continue without audio — the recording is still valid.
+        // Start system audio capture. If it fails, log and continue.
         let audio_session = match AudioCaptureSession::start(AudioCaptureConfig {
             output_path: audio_path.clone(),
-            capture_loopback: options.system_audio,
-            capture_microphone: options.microphone,
         }) {
             Ok(session) => Some(session),
             Err(e) => {
                 log::warn!("audio capture unavailable, recording without audio: {e}");
                 None
             }
+        };
+
+        // Start microphone capture as a separate track.
+        let microphone_session = if options.microphone {
+            match MicrophoneCaptureSession::start(MicrophoneCaptureConfig {
+                output_path: microphone_path.clone(),
+                device_id: options.microphone_device_id.clone(),
+            }) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    log::warn!("microphone capture unavailable: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Start camera capture as a separate track.
+        let camera_session = if options.camera {
+            match crate::camera::CameraCaptureSession::start(crate::camera::CameraCaptureConfig {
+                output_path: camera_path.clone(),
+                device_name: options.camera_device_id.clone(),
+            }) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    log::warn!("camera capture unavailable: {e}");
+                    None
+                }
+            }
+        } else {
+            None
         };
 
         *guard = Some(RecordingSession {
@@ -280,6 +319,8 @@ impl RecordingManager {
             cursor_handle,
             audio_session,
             audio_path,
+            microphone_session,
+            camera_session,
             pipeline,
             target,
             recording_path,
@@ -313,7 +354,7 @@ impl RecordingManager {
             .join()
             .map_err(|_| anyhow!("encoder thread panicked"))??;
 
-        // Stop audio capture. Write silence fallback if audio was unavailable.
+        // Stop system audio capture. Write silence fallback if unavailable.
         let audio_path = if let Some(audio_session) = session.audio_session {
             match audio_session.stop() {
                 Ok(path) => path,
@@ -335,6 +376,32 @@ impl RecordingManager {
             session.audio_path
         };
 
+        // Stop microphone capture if it was running.
+        let microphone_path = if let Some(mic_session) = session.microphone_session {
+            match mic_session.stop() {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    log::warn!("microphone capture stop failed: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Stop camera capture if it was running.
+        let camera_path = if let Some(cam_session) = session.camera_session {
+            match cam_session.stop() {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    log::warn!("camera capture stop failed: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let stats = build_stats(
             &session.pipeline,
             session.started_at.elapsed().as_millis() as u64,
@@ -345,6 +412,8 @@ impl RecordingManager {
             recording_path: session.recording_path,
             cursor_path: session.cursor_path,
             audio_path,
+            microphone_path,
+            camera_path,
             started_at_unix_ms: session.started_at_unix_ms,
             stats,
         })

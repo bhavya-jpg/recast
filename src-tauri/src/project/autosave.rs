@@ -115,7 +115,9 @@ pub fn cleanup_stale_sessions(output_dir: &Path) {
             if name.contains("recast-session-")
                 && (name.ends_with(".recording.mp4")
                     || name.ends_with(".cursor.json")
-                    || name.ends_with(".audio.wav"))
+                    || name.ends_with(".audio.wav")
+                    || name.ends_with(".microphone.wav")
+                    || name.ends_with(".camera.mp4"))
             {
                 log::info!("cleaning up orphaned session artifact: {}", path.display());
                 let _ = fs::remove_file(&path);

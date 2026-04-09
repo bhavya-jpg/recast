@@ -65,10 +65,6 @@ impl CursorOverlay {
 }
 
 impl ProcessingNode for CursorOverlay {
-    fn name(&self) -> &str {
-        "cursor"
-    }
-
     fn process(&self, frame: Frame, ctx: &RenderContext) -> Result<Frame, String> {
         if !self.enabled {
             return Ok(frame);

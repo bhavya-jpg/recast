@@ -20,9 +20,6 @@ pub trait ProcessingNode: Send + Sync {
     /// Apply this node's effect to the input frame and return the result.
     /// Nodes can resize, composite, overlay, or transform the frame.
     fn process(&self, frame: Frame, ctx: &RenderContext) -> Result<Frame, String>;
-
-    /// Human-readable name for logging and debugging.
-    fn name(&self) -> &str;
 }
 
 /// An ordered sequence of processing nodes applied to each frame.

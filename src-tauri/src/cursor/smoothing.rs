@@ -18,8 +18,6 @@ pub struct SmoothingConfig {
     /// Exponential smoothing factor (0.0 = no smoothing, 1.0 = maximum smoothing).
     /// Derived from the user slider: `alpha = 1.0 - (slider / 100.0) * 0.95`
     pub alpha: f64,
-    /// Whether to use Catmull-Rom interpolation for sub-sample positions.
-    pub interpolate: bool,
 }
 
 impl SmoothingConfig {
@@ -27,13 +25,8 @@ impl SmoothingConfig {
     /// 0 = raw positions (no smoothing), 100 = maximum smoothing.
     pub fn from_slider(value: f64) -> Self {
         let clamped = value.clamp(0.0, 100.0);
-        // alpha=1.0 means "take all of new value" (no smoothing).
-        // alpha=0.05 means "keep 95% of previous" (heavy smoothing).
         let alpha = 1.0 - (clamped / 100.0) * 0.95;
-        Self {
-            alpha,
-            interpolate: clamped > 10.0,
-        }
+        Self { alpha }
     }
 }
 

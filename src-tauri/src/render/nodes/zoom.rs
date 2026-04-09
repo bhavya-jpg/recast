@@ -15,10 +15,6 @@ pub struct ZoomEffect {
 }
 
 impl ProcessingNode for ZoomEffect {
-    fn name(&self) -> &str {
-        "zoom"
-    }
-
     fn process(&self, frame: Frame, ctx: &RenderContext) -> Result<Frame, String> {
         // Find the active zoom region for this timestamp.
         let active = self

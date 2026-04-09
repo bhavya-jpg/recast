@@ -10,6 +10,7 @@ use super::CaptureTarget;
 use crate::capture::create_capture_source;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct VideoFrame {
     pub timestamp_us: u64,
     pub width: u32,

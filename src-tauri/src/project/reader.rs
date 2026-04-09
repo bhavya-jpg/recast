@@ -14,6 +14,9 @@ pub struct ProjectOpenResult {
     pub recording_path: PathBuf,
     pub cursor_path: PathBuf,
     pub edits_path: PathBuf,
+    pub audio_path: Option<PathBuf>,
+    pub microphone_path: Option<PathBuf>,
+    pub camera_path: Option<PathBuf>,
 }
 
 pub fn open_project(path: &Path) -> Result<ProjectOpenResult> {
@@ -34,11 +37,19 @@ pub fn open_project(path: &Path) -> Result<ProjectOpenResult> {
     let cursor_path = extract_entry(&mut archive, "cursor.json", &cache_dir.join("cursor.json"))?;
     let edits_path = extract_entry(&mut archive, "edits.json", &cache_dir.join("edits.json"))?;
 
+    // Optional entries — v1 archives may not have these.
+    let audio_path = try_extract_entry(&mut archive, "audio.wav", &cache_dir.join("audio.wav"));
+    let microphone_path = try_extract_entry(&mut archive, "microphone.wav", &cache_dir.join("microphone.wav"));
+    let camera_path = try_extract_entry(&mut archive, "camera.mp4", &cache_dir.join("camera.mp4"));
+
     Ok(ProjectOpenResult {
         metadata,
         recording_path,
         cursor_path,
         edits_path,
+        audio_path,
+        microphone_path,
+        camera_path,
     })
 }
 
@@ -63,4 +74,19 @@ fn extract_entry(archive: &mut ZipArchive<File>, name: &str, path: &Path) -> Res
         output.write_all(&buffer[..read])?;
     }
     Ok(path.to_path_buf())
+}
+
+/// Try to extract an optional entry from the archive. Returns None if the entry doesn't exist.
+fn try_extract_entry(archive: &mut ZipArchive<File>, name: &str, path: &Path) -> Option<PathBuf> {
+    let mut entry = archive.by_name(name).ok()?;
+    let mut output = File::create(path).ok()?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = entry.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        output.write_all(&buffer[..read]).ok()?;
+    }
+    Some(path.to_path_buf())
 }

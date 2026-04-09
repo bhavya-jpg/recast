@@ -7,7 +7,7 @@ use super::ffmpeg::probe_video_metadata;
 use super::system::get_active_output_dir;
 use super::types::{AppState, RecordingEntry};
 use crate::project::writer::{ProjectWriteRequest, write_project};
-use crate::project::{ProjectMetadata, ProjectVideoMetadata};
+use crate::project::{ProjectMediaMetadata, ProjectMetadata, ProjectVideoMetadata};
 use crate::recording::{CaptureTarget, RecordingOptions};
 use crate::render::graph::RenderState;
 
@@ -58,6 +58,11 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
             fps: recording_meta.fps.round().max(1.0) as u32,
             duration_ms: artifacts.stats.duration_ms,
         },
+        media: Some(ProjectMediaMetadata {
+            has_system_audio: true,
+            has_microphone: artifacts.microphone_path.is_some(),
+            has_camera: artifacts.camera_path.is_some(),
+        }),
     };
     let default_render_state = RenderState {
         trim_end: artifacts.stats.duration_ms as f64 / 1000.0,
@@ -69,14 +74,23 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
         recording_path: artifacts.recording_path.clone(),
         cursor_path: artifacts.cursor_path.clone(),
         audio_path: artifacts.audio_path.clone(),
+        microphone_path: artifacts.microphone_path.clone(),
+        camera_path: artifacts.camera_path.clone(),
         edits_json: serde_json::to_string_pretty(&default_render_state)
             .unwrap_or_else(|_| "{}".into()),
     })
     .map_err(|e| e.to_string())?;
 
+    // Clean up temporary session files.
     let _ = fs::remove_file(&artifacts.recording_path);
     let _ = fs::remove_file(&artifacts.cursor_path);
     let _ = fs::remove_file(&artifacts.audio_path);
+    if let Some(ref mic_path) = artifacts.microphone_path {
+        let _ = fs::remove_file(mic_path);
+    }
+    if let Some(ref cam_path) = artifacts.camera_path {
+        let _ = fs::remove_file(cam_path);
+    }
 
     *state.last_file_path.lock() = Some(project_path.to_string_lossy().to_string());
     Ok(project_path.to_string_lossy().to_string())

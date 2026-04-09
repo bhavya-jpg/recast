@@ -3,11 +3,11 @@
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
   import * as Sidebar from "$components/ui/sidebar";
   import { cn } from "$lib/utils";
-  import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
   import { Button } from "$components/ui/button";
   import { Download, Film, Hexagon, LayoutDashboard, Radio, Settings, SlidersHorizontal } from "@lucide/svelte";
   import type { ComponentProps } from "svelte";
+import { launchRecordingPanel } from "$lib/ipc";
 
   let currentPath = $derived(page.url.pathname);
   const navLinks = [
@@ -21,31 +21,7 @@
   function isActive(path: string) {
     return currentPath.endsWith(path);
   }
-  async function launchRecordingPanel() {
-    const existing = await WebviewWindow.getByLabel("recording-panel");
-    if (existing) {
-      await existing.setFocus();
-      return;
-    }
 
-    const panelWidth = 460;
-    const panelHeight = 44;
-    const panelWin = new WebviewWindow("recording-panel", {
-      url: "/panel",
-      title: "Recast Panel",
-      width: panelWidth,
-      height: panelHeight,
-      decorations: false,
-      transparent: true,
-      alwaysOnTop: true,
-      resizable: false,
-      skipTaskbar: true,
-      x: Math.round(window.screen.availWidth / 2 - panelWidth / 2),
-      y: window.screen.availHeight - panelHeight - 40,
-    });
-
-    panelWin.once("tauri://error", (e) => console.error(e));
-  }
 
     let { ref = $bindable(null), ...restProps }: ComponentProps<typeof Sidebar.Root> = $props();
 </script>

@@ -30,7 +30,6 @@ pub fn build_pipeline(state: &RenderState) -> RenderPipeline {
         pipeline.push(Box::new(BackgroundCompositor {
             background_type: state.background_type.clone(),
             value: state.background_value.clone(),
-            blur: state.background_blur,
             padding,
         }));
     }

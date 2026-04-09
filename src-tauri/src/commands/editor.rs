@@ -75,6 +75,9 @@ pub fn load_editor_document(path: String) -> Result<EditorDocument, String> {
             media_path: project.recording_path.to_string_lossy().to_string(),
             cursor_path: Some(project.cursor_path.to_string_lossy().to_string()),
             edits_path: Some(project.edits_path.to_string_lossy().to_string()),
+            audio_path: project.audio_path.map(|p| p.to_string_lossy().to_string()),
+            microphone_path: project.microphone_path.map(|p| p.to_string_lossy().to_string()),
+            camera_path: project.camera_path.map(|p| p.to_string_lossy().to_string()),
             metadata: VideoMetadata {
                 duration: project.metadata.video.duration_ms as f64 / 1000.0,
                 width: project.metadata.video.width,
@@ -93,6 +96,9 @@ pub fn load_editor_document(path: String) -> Result<EditorDocument, String> {
         media_path: path,
         cursor_path: None,
         edits_path: None,
+        audio_path: None,
+        microphone_path: None,
+        camera_path: None,
         metadata: metadata.clone(),
         render_state: RenderState {
             trim_end: metadata.duration,

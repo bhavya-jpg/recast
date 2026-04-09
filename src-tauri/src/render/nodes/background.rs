@@ -5,14 +5,10 @@ use crate::render::pipeline::{ProcessingNode, RenderContext};
 pub struct BackgroundCompositor {
     pub background_type: String,
     pub value: String,
-    pub blur: f64,
     pub padding: u32,
 }
 
 impl ProcessingNode for BackgroundCompositor {
-    fn name(&self) -> &str {
-        "background"
-    }
 
     fn process(&self, frame: Frame, ctx: &RenderContext) -> Result<Frame, String> {
         if self.padding == 0 {

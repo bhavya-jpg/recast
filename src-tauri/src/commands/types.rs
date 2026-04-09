@@ -60,6 +60,9 @@ pub struct EditorDocument {
     pub media_path: String,
     pub cursor_path: Option<String>,
     pub edits_path: Option<String>,
+    pub audio_path: Option<String>,
+    pub microphone_path: Option<String>,
+    pub camera_path: Option<String>,
     pub metadata: VideoMetadata,
     pub render_state: RenderState,
 }

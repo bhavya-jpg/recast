@@ -208,7 +208,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={trackEl}
-    class="group relative h-2.5 w-full rounded-full bg-muted/80 {disabled
+    class="group relative h-2.5 w-full rounded-full bg-muted-foreground/20 border border-border/70 {disabled
       ? 'cursor-not-allowed'
       : 'cursor-pointer'}"
     onpointerdown={handlePointerDown}
@@ -236,11 +236,11 @@
       style="left: calc({Math.min(100, Math.max(0, percentage))}% - 0.5rem)"
     >
       <div
-        class="flex h-4 w-4 items-center justify-center rounded-full border border-white/80 bg-background shadow-[0_6px_18px_rgba(37,99,235,0.25)] ring-4 ring-primary/10 transition-transform duration-150 {isDragging
+        class="flex size-4 items-center justify-center rounded-full border border-border bg-muted shadow-[0_6px_18px_rgba(37,99,235,0.25)] ring-4 ring-primary/10 transition-transform duration-150 {isDragging
           ? 'scale-110'
           : 'group-hover:scale-105 group-focus-visible:scale-105'}"
       >
-        <div class="h-1.5 w-1.5 rounded-full bg-primary"></div>
+        <div class="size-1.5 rounded-full bg-primary"></div>
       </div>
     </div>
   </div>

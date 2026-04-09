@@ -5,18 +5,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-/// Configuration for audio capture.
+/// Configuration for system/loopback audio capture.
 #[derive(Debug, Clone)]
 pub struct AudioCaptureConfig {
     /// Path to write the WAV output file.
     pub output_path: PathBuf,
-    /// Capture system/loopback audio.
-    pub capture_loopback: bool,
-    /// Capture microphone audio (future: will be mixed or stored as separate track).
-    pub capture_microphone: bool,
 }
 
-/// Handle to a running audio capture session.
+/// Handle to a running system audio capture session.
 /// The capture runs on a background thread and writes PCM data to a WAV file.
 /// Call `stop()` to finalize the WAV file and get the output path.
 pub struct AudioCaptureSession {
@@ -24,14 +20,37 @@ pub struct AudioCaptureSession {
 }
 
 impl AudioCaptureSession {
-    /// Start a new audio capture session with the given configuration.
     pub fn start(config: AudioCaptureConfig) -> Result<Self> {
         let inner = platform::PlatformAudioSession::start(config)?;
         Ok(Self { inner })
     }
 
-    /// Stop the capture, finalize the WAV file, and return the output path.
-    /// This blocks until the capture thread has finished writing.
+    pub fn stop(self) -> Result<PathBuf> {
+        self.inner.stop()
+    }
+}
+
+/// Configuration for microphone capture.
+#[derive(Debug, Clone)]
+pub struct MicrophoneCaptureConfig {
+    /// Path to write the WAV output file.
+    pub output_path: PathBuf,
+    /// Specific device ID to capture from (None = system default microphone).
+    pub device_id: Option<String>,
+}
+
+/// Handle to a running microphone capture session.
+/// Captures from a specific microphone device and writes PCM data to a WAV file.
+pub struct MicrophoneCaptureSession {
+    inner: platform::PlatformMicrophoneSession,
+}
+
+impl MicrophoneCaptureSession {
+    pub fn start(config: MicrophoneCaptureConfig) -> Result<Self> {
+        let inner = platform::PlatformMicrophoneSession::start(config)?;
+        Ok(Self { inner })
+    }
+
     pub fn stop(self) -> Result<PathBuf> {
         self.inner.stop()
     }

@@ -265,14 +265,14 @@
         />
       </div>
 
-      <div class="grid grid-cols-5 gap-2">
+      <div class="grid grid-cols-6 gap-2">
         {#each COLOR_PRESETS as color}
           <button
             type="button"
             onclick={() => applyBackground("color", color)}
             aria-label={`Use color ${color}`}
             class={cn(
-              "aspect-square rounded-2xl border-2 transition-all duration-200",
+              "aspect-square size-10 rounded-lg border-2 transition-all duration-200",
               {
                 "scale-105 border-foreground shadow-md":
                   store.backgroundValue === color,

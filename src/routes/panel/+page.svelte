@@ -303,12 +303,13 @@
   <!-- Device toggles -->
   <div class="flex items-center gap-0.5 shrink-0">
     <!-- System audio (simple toggle) -->
-    <button
+    <Button
       disabled={isRecording}
       onclick={() => (systemAudioOn = !systemAudioOn)}
       onmousedown={(e) => e.stopPropagation()}
-      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
-        {systemAudioOn ? 'text-blue-400 hover:bg-card/8' : 'text-foreground/20 hover:bg-card/6'}"
+      variant="ghost"
+      size="icon-sm"
+      class="size-6 rounded-md {systemAudioOn ? 'text-primary' : 'text-muted-foreground/40'}"
       title={systemAudioOn ? "System audio: on" : "System audio: off"}
     >
       {#if systemAudioOn}
@@ -316,15 +317,16 @@
       {:else}
         <VolumeOff size={12} strokeWidth={2} />
       {/if}
-    </button>
+    </Button>
 
     <!-- Mic (click = open device picker window) -->
-    <button
+    <Button
       disabled={isRecording}
       onclick={toggleMic}
       onmousedown={(e) => e.stopPropagation()}
-      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
-        {micOn ? 'text-emerald-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+      variant="ghost"
+      size="icon-sm"
+      class="size-6 rounded-md {micOn ? 'text-primary' : 'text-muted-foreground/40'}"
       title={micOn ? `Mic: ${selectedMicName}` : "Microphone: off — click to select"}
     >
       {#if micOn}
@@ -332,15 +334,16 @@
       {:else}
         <MicOff size={12} strokeWidth={2} />
       {/if}
-    </button>
+    </Button>
 
     <!-- Camera (click = open device picker + camera preview) -->
-    <button
+    <Button
       disabled={isRecording}
       onclick={toggleCamera}
       onmousedown={(e) => e.stopPropagation()}
-      class="size-6 rounded-md flex items-center justify-center transition-colors disabled:opacity-35
-        {cameraOn ? 'text-violet-400 hover:bg-white/8' : 'text-white/20 hover:bg-white/6'}"
+      variant="ghost"
+      size="icon-sm"
+      class="size-6 rounded-md {cameraOn ? 'text-primary' : 'text-muted-foreground/40'}"
       title={cameraOn ? `Camera: ${selectedCameraName}` : "Camera: off — click to select"}
     >
       {#if cameraOn}
@@ -348,7 +351,7 @@
       {:else}
         <CameraOff size={12} strokeWidth={2} />
       {/if}
-    </button>
+    </Button>
   </div>
 
   <!-- Timer -->

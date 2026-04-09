@@ -10,6 +10,7 @@
 
 import type { EditorRenderState, VideoMetadata } from "$lib/stores/editor-store.svelte";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // ── Types matching Rust structs ─────────────────────────────────────────
 
@@ -49,6 +50,9 @@ export interface EditorDocument {
 	mediaPath: string;
 	cursorPath?: string | null;
 	editsPath?: string | null;
+	audioPath?: string | null;
+	microphonePath?: string | null;
+	cameraPath?: string | null;
 	metadata: VideoMetadata;
 	renderState: EditorRenderState;
 }
@@ -178,3 +182,31 @@ export function clearAutosave(projectPath: string): Promise<void> {
 export function getRecoverableSessions(): Promise<AutosaveState[]> {
 	return invoke<AutosaveState[]>("get_recoverable_sessions");
 }
+
+
+// start recording
+ export async function launchRecordingPanel() {
+    const existing = await WebviewWindow.getByLabel("recording-panel");
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+
+    const panelWidth = 460;
+    const panelHeight = 44;
+    const panelWin = new WebviewWindow("recording-panel", {
+      url: "/panel",
+      title: "Recast Panel",
+      width: panelWidth,
+      height: panelHeight,
+      decorations: false,
+      transparent: true,
+      alwaysOnTop: true,
+      resizable: false,
+      skipTaskbar: true,
+      x: Math.round(window.screen.availWidth / 2 - panelWidth / 2),
+      y: window.screen.availHeight - panelHeight - 40,
+    });
+
+    panelWin.once("tauri://error", (e) => console.error(e));
+  }

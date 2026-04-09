@@ -54,7 +54,7 @@
       <Button
         type="button"
         variant={store.cursorSettings.enabled ? "default_soft" : "outline"}
-		size="sm"
+        size="sm"
         onclick={() =>
           updateCursorSettings(
             { enabled: !store.cursorSettings.enabled },
@@ -73,7 +73,7 @@
     </div>
 
     <div class="mt-4 grid grid-cols-3 gap-2">
-      <div class="rounded-lg border border-border/70 bg-background/70 p-3">
+      <div class="rounded-lg bg-muted px-2 py-2">
         <p
           class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
         >
@@ -83,7 +83,7 @@
           {store.cursorSettings.size}x
         </p>
       </div>
-      <div class="rounded-lg border border-border/70 bg-background/70 p-3">
+      <div class="rounded-lg bg-muted px-2 py-2">
         <p
           class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
         >
@@ -93,7 +93,7 @@
           {store.cursorSettings.highlightClicks ? "On" : "Off"}
         </p>
       </div>
-      <div class="rounded-lg border border-border/70 bg-background/70 p-3">
+      <div class="rounded-lg bg-muted px-2 py-2">
         <p
           class="text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
         >
@@ -153,7 +153,7 @@
     </section>
 
     <section id="click-highlight">
-      <div class="mb-3 flex items-start justify-between gap-3">
+      <div class="mb-3 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <h4 class="text-sm font-semibold text-foreground">Click highlight</h4>
           <InspectorHint
@@ -161,8 +161,9 @@
           />
         </div>
 
-        <button
+        <Button
           type="button"
+          size="sm"
           onclick={() =>
             updateCursorSettings(
               {
@@ -174,14 +175,13 @@
           aria-label={store.cursorSettings.highlightClicks
             ? "Disable click highlight"
             : "Enable click highlight"}
-          class="inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold transition-colors {store
-            .cursorSettings.highlightClicks
-            ? 'border-primary/30 bg-primary/10 text-primary'
-            : 'border-border/70 bg-background/80 text-muted-foreground hover:text-foreground'}"
+          variant={store.cursorSettings.highlightClicks
+            ? "default_soft"
+            : "outline"}
         >
           <Activity size={14} />
           {store.cursorSettings.highlightClicks ? "Enabled" : "Disabled"}
-        </button>
+        </Button>
       </div>
 
       {#if store.cursorSettings.highlightClicks}
@@ -229,7 +229,7 @@
     </section>
 
     <section id="idle-behavior">
-      <div class="mb-3 flex items-start justify-between gap-3">
+      <div class="mb-3 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <h4 class="text-sm font-semibold text-foreground">Idle behavior</h4>
           <InspectorHint
@@ -237,7 +237,7 @@
           />
         </div>
 
-        <button
+        <Button
           type="button"
           onclick={() =>
             updateCursorSettings(
@@ -247,16 +247,16 @@
               true,
             )}
           aria-pressed={store.cursorSettings.hideWhenIdle}
+          variant={store.cursorSettings.hideWhenIdle
+            ? "default_soft"
+            : "outline"}
+          size="sm"
           aria-label={store.cursorSettings.hideWhenIdle
             ? "Disable hide cursor when idle"
             : "Enable hide cursor when idle"}
-          class="inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold transition-colors {store
-            .cursorSettings.hideWhenIdle
-            ? 'border-primary/30 bg-primary/10 text-primary'
-            : 'border-border/70 bg-background/80 text-muted-foreground hover:text-foreground'}"
         >
           {store.cursorSettings.hideWhenIdle ? "Enabled" : "Disabled"}
-        </button>
+        </Button>
       </div>
 
       {#if store.cursorSettings.hideWhenIdle}
