@@ -41,6 +41,7 @@
 	"dependencies": {
 		"@fontsource-variable/google-sans": "^5.2.1",
 		"@lucide/svelte": "^0.577.0",
+		"@tauri-apps/plugin-dialog": "^2.7.0",
 		"@tauri-apps/plugin-os": "^2.3.2",
 		"@tauri-controls-v2/svelte": "^0.4.4",
 		"@unpic/svelte": "^1.0.1",
