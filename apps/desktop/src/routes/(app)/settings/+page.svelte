@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
   import {

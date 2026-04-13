@@ -2,10 +2,10 @@
 	import { Dialog as DialogPrimitive } from "bits-ui";
 	import DialogPortal from "./dialog-portal.svelte";
 	import type { Snippet } from "svelte";
-	import * as Dialog from "./index.js";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import * as Dialog from ".";
+	import { cn, type WithoutChildrenOrChild } from "@recast/utils";
 	import type { ComponentProps } from "svelte";
-	import { Button } from "$components/ui/button/index.js";
+	import { Button } from "@recast/ui";
 	import { IconX } from '@tabler/icons-svelte';
 
 	let {

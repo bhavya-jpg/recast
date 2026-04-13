@@ -1,8 +1,8 @@
 <script lang="ts">
   import AppSidebar from "$components/layout/app-sidebar.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
-  import { Separator } from "$components/ui/separator";
-  import * as Sidebar from "$components/ui/sidebar";
+  import { Separator } from "@recast/ui";
+  import * as Sidebar from "@recast/ui";
   import { config } from "$constants/app";
   let { children } = $props();
 </script>

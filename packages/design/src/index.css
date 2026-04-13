@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], .dark, .dark *, [data-theme="dark"] *));
+
+:root,
+[data-theme="light"] {
+  --background: hsl(40, 30%, 96%);
+  --foreground: hsl(0deg 0% 9.8%);
+
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(0deg 0% 9.8%);
+
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(0deg 0% 9.8%);
+
+  --primary: hsl(175, 84%, 32%);
+  --primary-foreground: hsl(0deg 0% 92.16%);
+
+  --secondary: hsla(240 4.8% 95.9%);
+  --secondary-foreground: hsla(240 5.9% 10%);
+
+  --tertiary: #20adee;
+  --tertiary-foreground: hsl(0deg 0% 92.16%);
+
+  --muted: hsl(0, 0%, 92%);
+  --muted-foreground: hsl(220 8.9% 46.1%);
+
+  --accent: hsl(344.79deg 33.25% 96.34%);
+  --accent-foreground: hsl(220.9 39.3% 11%);
+
+  --destructive: hsl(0 84.2% 60.2%);
+  --destructive-foreground: hsl(0deg 0% 92.16%);
+
+  --success: oklch(0.646 0.222 142.495);
+  --success-foreground: oklch(0.985 0 0);
+
+  --warning: oklch(0.828 0.189 84.429);
+  --warning-foreground: oklch(0.145 0 0);
+
+  --info: oklch(0.6 0.118 184.704);
+  --info-foreground: oklch(0.985 0 0);
+
+  --border: hsl(220 13% 91%);
+  --input: oklch(.922 0 0);
+  --ring: var(--primary);
+  --radius: 0.75rem;
+
+  --max-app-width: clamp(1280px, 80vw, 1920px);
+  --noise-bg: url(/light-noise.svg), linear-gradient(hsl(40, 30%, 96%), hsl(40, 30%, 96%));
+}
+
+.dark,
+[data-theme="dark"] {
+  --background: hsl(0deg 0% 7.06%);
+  --foreground: hsl(0deg 0% 92.16%);
+
+  --card: hsl(0deg 0% 10%);
+  --card-foreground: hsl(0deg 0% 92.16%);
+
+  --popover: hsl(0deg 0% 10%);
+  --popover-foreground: hsl(0deg 0% 92.16%);
+
+  --primary: hsl(175, 84%, 32%);
+  --primary-foreground: hsl(0deg 0% 92.16%);
+
+  --secondary: hsla(240 3.7% 15.9%);
+  --secondary-foreground: hsla(0 0% 98%);
+
+  --muted: hsl(0deg 0.01% 12.16%);
+  --muted-foreground: hsl(217.9 10.6% 64.9%);
+
+  --accent: hsl(240 3.7% 15.9%);
+  --accent-foreground: hsl(0, 0%, 61%);
+
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --border: hsl(0, 0%, 14%);
+  --input: oklch(1 0 0/15%);
+  --ring: var(--primary);
+
+  --noise-bg: url(/dark-noise.png), linear-gradient(#393737, #1b1b1b);
+}
+
+@theme {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-tertiary: var(--tertiary);
+  --color-tertiary-foreground: var(--tertiary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: 'Geist Variable', sans-serif;
+  --font-mono: 'Space Mono', 'Fira Code', 'Courier New', monospace;
+  --font-heading: 'Geist Variable', sans-serif;
+
+  --shadow-button: 0px -1px 0px 0px hsla(0, 0%, 100%, 0.04), 0px 0px 0px 1px hsla(0, 0%, 100%, 0.12), 0px 0px 1px 0px rgba(0, 0, 0, 0.04), 0px 2px 2px 0px rgba(0, 0, 0, 0.04), 0px 4px 2px 0px rgba(0, 0, 0, 0.04), 0px 6px 3px 0px rgba(0, 0, 0, 0.04);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    0% { height: 0; }
+    100% { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    0% { height: var(--radix-accordion-content-height); }
+    100% { height: 0; }
+  }
+}

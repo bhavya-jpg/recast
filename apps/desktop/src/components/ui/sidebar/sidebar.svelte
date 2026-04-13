@@ -1,9 +1,9 @@
 <script lang="ts">
-	import * as Sheet from "$components/ui/sheet/index.js";
-	import { cn, type WithElementRef } from "$lib/utils.js";
+	import * as Sheet from "@recast/ui";
+	import { cn, type WithElementRef } from "@recast/utils";
 	import type { HTMLAttributes } from "svelte/elements";
-	import { SIDEBAR_WIDTH_MOBILE } from "./constants.js";
-	import { useSidebar } from "./context.svelte.js";
+	import { SIDEBAR_WIDTH_MOBILE } from "./constants";
+	import { useSidebar } from "./context.svelte";
 
 	let {
 		ref = $bindable(null),

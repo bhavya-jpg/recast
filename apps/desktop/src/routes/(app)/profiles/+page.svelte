@@ -1,7 +1,7 @@
 <script lang="ts">
   import { RecastList, type RecastAccessory, type RecastListItem } from "$components/recast";
-  import { Button } from "$components/ui/button";
-  import { cn } from "$lib/utils";
+  import { Button } from "@recast/ui";
+  import { cn } from "@recast/utils";
   import {
     Camera,
     CheckCircle2,

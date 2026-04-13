@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { Button } from "$components/ui/button";
-  import * as Command from "$components/ui/command";
-  import * as Dialog from "$components/ui/dialog";
+  import { Button } from "@recast/ui";
+  import * as Command from "@recast/ui";
+  import * as Dialog from "@recast/ui";
   import { buildGlobalCommands } from "$lib/commands";
   import { commandPalette, type PaletteCommand } from "$lib/stores/command-palette.svelte";
-  import { cn } from "$lib/utils";
+  import { cn } from "@recast/utils";
   import { Search } from "@lucide/svelte";
   import { onMount } from "svelte";
 

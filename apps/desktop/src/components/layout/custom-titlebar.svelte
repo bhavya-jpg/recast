@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import { isTauriApp } from "$lib/runtime/tauri";
-  import { cn } from "$lib/utils";
+  import { cn } from "@recast/utils";
   import { Minus, Square, X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { onMount } from "svelte";

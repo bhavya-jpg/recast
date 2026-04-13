@@ -1,14 +1,14 @@
 <script lang="ts">
-	import * as Tooltip from "$components/ui/tooltip/index.js";
-	import { cn, type WithElementRef } from "$lib/utils.js";
+	import * as Tooltip from "@recast/ui";
+	import { cn, type WithElementRef } from "@recast/utils";
 	import type { HTMLAttributes } from "svelte/elements";
 	import {
 		SIDEBAR_COOKIE_MAX_AGE,
 		SIDEBAR_COOKIE_NAME,
 		SIDEBAR_WIDTH,
 		SIDEBAR_WIDTH_ICON,
-	} from "./constants.js";
-	import { setSidebar } from "./context.svelte.js";
+	} from "./constants";
+	import { setSidebar } from "./context.svelte";
 
 	let {
 		ref = $bindable(null),

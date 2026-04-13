@@ -6,7 +6,7 @@
     RenameDialog,
     type RecastListItem,
   } from "$components/recast";
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import {
     deleteFile,
     generateThumbnails,

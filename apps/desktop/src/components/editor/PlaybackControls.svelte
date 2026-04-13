@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button } from "$components/ui/button";
-	import * as Tooltip from "$components/ui/tooltip";
+	import { Button } from "@recast/ui";
+	import * as Tooltip from "@recast/ui";
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
 	import { Pause, Play, SkipBack, SkipForward, ZoomIn, ZoomOut } from "@lucide/svelte";
 

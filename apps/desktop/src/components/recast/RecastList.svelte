@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Button } from "$components/ui/button";
-	import * as Command from "$components/ui/command";
-	import { cn } from "$lib/utils";
+	import { Button } from "@recast/ui";
+	import * as Command from "@recast/ui";
+	import { cn } from "@recast/utils";
 	import { Command as CommandIcon, Sparkles, X } from "@lucide/svelte";
 	import { onMount, type Snippet } from "svelte";
 	import ActionPanel from "./ActionPanel.svelte";

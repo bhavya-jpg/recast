@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { Button } from "$components/ui/button/index.js";
+	import { Button } from "@recast/ui";
 	import { IconLayoutSidebar } from '@tabler/icons-svelte';
-	import { cn } from "$lib/utils.js";
+	import { cn } from "@recast/utils";
 	import type { ComponentProps } from "svelte";
-	import { useSidebar } from "./context.svelte.js";
+	import { useSidebar } from "./context.svelte";
 
 	let {
 		ref = $bindable(null),

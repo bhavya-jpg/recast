@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Button from "$components/ui/button/button.svelte";
+  import Button from "@recast/ui";
   import {
     getAudioDevices,
     getCameraDevices,
@@ -260,7 +260,8 @@
   class="min-h-dvh h-full w-full flex items-center gap-1 px-1.5 backdrop-blur-2xl bg-card shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.06)] select-none"
   data-tauri-drag-region
 >
-  <!-- Record / Stop -->
+<div class="flex items-center gap-1 mr-auto"> 
+   <!-- Record / Stop -->
   <Button
   size="icon"
     onclick={toggleRecording}
@@ -276,7 +277,16 @@
     {/if}
   </Button>
 
-  <div class="w-px h-3.5 bg-white/8 shrink-0"></div>
+  <!-- Timer -->
+  <span
+    class="font-mono text-[10.5px] tabular-nums text-card-foreground/30 shrink-0 ml-auto"
+    data-tauri-drag-region
+  >
+    {timer}
+  </span>
+</div>
+
+  <div class="w-px h-3.5 bg-foreground/8 shrink-0"></div>
 
   <!-- Source -->
   <button
@@ -298,7 +308,7 @@
     {/if}
   </button>
 
-  <div class="w-px h-3.5 bg-white/8 shrink-0"></div>
+  <div class="w-px h-3.5 bg-foreground/8 shrink-0"></div>
 
   <!-- Device toggles -->
   <div class="flex items-center gap-0.5 shrink-0">
@@ -353,14 +363,6 @@
       {/if}
     </Button>
   </div>
-
-  <!-- Timer -->
-  <span
-    class="font-mono text-[10.5px] tabular-nums text-card-foreground/30 shrink-0 ml-auto"
-    data-tauri-drag-region
-  >
-    {timer}
-  </span>
 
   <!-- Close -->
   <Button

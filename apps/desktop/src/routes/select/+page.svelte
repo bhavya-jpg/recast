@@ -1,6 +1,6 @@
 <script lang="ts">
   import SourceSelectorSkeleton from "$components/skeletons/SourceSelectorSkeleton.svelte";
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import { getDisplays, getWindows } from "$lib/ipc";
   import {
     AppWindow,

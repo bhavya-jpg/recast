@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from "$lib/utils.js";
+	import { cn } from "@recast/utils";
 	import { IconLoader } from '@tabler/icons-svelte';
 	import type { SVGAttributes } from "svelte/elements";
 

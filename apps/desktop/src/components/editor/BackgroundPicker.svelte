@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import {
     COLOR_PRESETS,
     GRADIENT_PRESETS,
@@ -7,7 +7,7 @@
     type BackgroundType,
     type EditorStore,
   } from "$lib/stores/editor-store.svelte";
-  import { cn } from "$lib/utils";
+  import { cn } from "@recast/utils";
   import { Image } from "@unpic/svelte";
   import {
     Blend,

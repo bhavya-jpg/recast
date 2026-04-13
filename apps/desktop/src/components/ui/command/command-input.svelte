@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Command as CommandPrimitive } from "bits-ui";
-	import { cn } from "$lib/utils.js";
-	import * as InputGroup from "$components/ui/input-group/index.js";
+	import { cn } from "@recast/utils";
+	import * as InputGroup from "@recast/ui";
 	import { IconSearch } from '@tabler/icons-svelte';
 
 	let {

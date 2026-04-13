@@ -1,0 +1,22 @@
+@import "@recast/design/index.css";
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary/30 selection:text-primary;
+    background-image: var(--noise-bg);
+    min-height: 100vh;
+  }
+}
+
+/* Marketing specific utilities */
+.container {
+  @apply mx-auto px-6 max-w-7xl;
+}
+
+.section-padding {
+  @apply py-24 md:py-32;
+}
+
+.glass {
+  @apply bg-background/60 backdrop-blur-xl border border-border/50;
+}

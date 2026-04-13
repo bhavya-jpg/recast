@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button } from "$components/ui/button";
-	import * as Dialog from "$components/ui/dialog";
+	import { Button } from "@recast/ui";
+	import * as Dialog from "@recast/ui";
 	import { AlertTriangle } from "@lucide/svelte";
 
 	interface Props {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from "$app/stores";
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import { config } from "$constants/app";
   import {

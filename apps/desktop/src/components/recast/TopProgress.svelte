@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from "$lib/utils";
+	import { cn } from "@recast/utils";
 
 	let { active = false, class: className }: { active?: boolean; class?: string } = $props();
 </script>

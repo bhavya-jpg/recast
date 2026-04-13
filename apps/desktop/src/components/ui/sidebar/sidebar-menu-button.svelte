@@ -27,12 +27,12 @@
 </script>
 
 <script lang="ts">
-	import * as Tooltip from "$components/ui/tooltip/index.js";
-	import { cn, type WithElementRef, type WithoutChildrenOrChild } from "$lib/utils.js";
+	import * as Tooltip from "@recast/ui";
+	import { cn, type WithElementRef, type WithoutChildrenOrChild } from "@recast/utils";
 	import { mergeProps } from "bits-ui";
 	import type { ComponentProps, Snippet } from "svelte";
 	import type { HTMLAttributes } from "svelte/elements";
-	import { useSidebar } from "./context.svelte.js";
+	import { useSidebar } from "./context.svelte";
 
 	let {
 		ref = $bindable(null),
