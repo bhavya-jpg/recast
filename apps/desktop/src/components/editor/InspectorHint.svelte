@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button } from "@recast/ui";
-	import * as Tooltip from "@recast/ui";
+	import { Button } from "@recast/ui/button";
+	import * as Tooltip from "@recast/ui/tooltip";
 	import { CircleHelp } from "@lucide/svelte";
 
 	interface Props {

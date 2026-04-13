@@ -46,7 +46,7 @@
   --radius: 0.75rem;
 
   --max-app-width: clamp(1280px, 80vw, 1920px);
-  --noise-bg: url(/light-noise.svg), linear-gradient(hsl(40, 30%, 96%), hsl(40, 30%, 96%));
+  --noise-bg: linear-gradient(hsl(40, 30%, 96%), hsl(40, 30%, 96%));
 }
 
 .dark,
@@ -79,7 +79,7 @@
   --input: oklch(1 0 0/15%);
   --ring: var(--primary);
 
-  --noise-bg: url(/dark-noise.png), linear-gradient(#393737, #1b1b1b);
+  --noise-bg: linear-gradient(#393737, #1b1b1b);
 }
 
 @theme {

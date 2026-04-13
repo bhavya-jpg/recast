@@ -1,6 +1,6 @@
 <script lang="ts">
-  import * as Tabs from "@recast/ui";
-  import * as Tooltip from "@recast/ui";
+  import * as Tabs from "@recast/ui/tabs";
+  import * as Tooltip from "@recast/ui/tooltip";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { Clock, Film, Gauge, ImageIcon, MousePointer, Volume2 } from "@lucide/svelte";
   import AudioPanel from "./AudioPanel.svelte";

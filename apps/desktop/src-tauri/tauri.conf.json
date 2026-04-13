@@ -5,7 +5,7 @@
   "identifier": "com.nexonauts.recast",
   "build": {
     "frontendDist": "../build",
-    "devUrl": "http://localhost:4000",
+    "devUrl": "http://localhost:4421",
     "beforeDevCommand": "bun run ui:dev",
     "beforeBuildCommand": "bun run ui:build"
   },

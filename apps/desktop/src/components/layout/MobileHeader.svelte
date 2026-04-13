@@ -1,6 +1,6 @@
 <script lang="ts">
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
-  import { Trigger as SidebarTrigger } from "@recast/ui";
+  import { Trigger as SidebarTrigger } from "@recast/ui/sidebar";
   import { Hexagon } from "@lucide/svelte";
 </script>
 

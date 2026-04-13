@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Card } from "@recast/ui";
+	import { Card } from "@recast/ui/card";
 	import { Layers, MousePointer2, Shield, Zap } from "lucide-svelte";
 	import { Container, Section } from ".";
 

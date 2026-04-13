@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button } from "@recast/ui";
-	import * as Command from "@recast/ui";
+	import { Button } from "@recast/ui/button";
+	import * as Command from "@recast/ui/command";
 	import { cn } from "@recast/utils";
 	import { Command as CommandIcon, Sparkles, X } from "@lucide/svelte";
 	import { onMount, type Snippet } from "svelte";

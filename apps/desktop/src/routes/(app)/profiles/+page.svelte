@@ -1,6 +1,6 @@
 <script lang="ts">
   import { RecastList, type RecastAccessory, type RecastListItem } from "$components/recast";
-  import { Button } from "@recast/ui";
+  import { Button } from "@recast/ui/button";
   import { cn } from "@recast/utils";
   import {
     Camera,

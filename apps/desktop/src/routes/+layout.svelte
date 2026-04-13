@@ -5,7 +5,7 @@
 
 	let { children } = $props();
 
-	import { Toaster } from "@recast/ui";
+	import { Toaster } from "@recast/ui/sonner";
 	import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
 	import { ModeWatcher, setMode } from "mode-watcher";
 	import { onMount, tick } from "svelte";

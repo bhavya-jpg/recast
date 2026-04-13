@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { EditorStore } from "$lib/stores/editor-store.svelte";
-	import { Spinner } from "@recast/ui";
+	import { Spinner } from "@recast/ui/spinner";
 	import { convertFileSrc } from "@tauri-apps/api/core";
 	import { onMount, onDestroy } from "svelte";
 

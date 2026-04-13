@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Skeleton } from "@recast/ui";
+  import { Skeleton } from "@recast/ui/skeleton";
 </script>
 
 <div class="grid grid-cols-2 gap-2 mt-4">

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import * as Command from "@recast/ui";
-	import * as Dialog from "@recast/ui";
+	import * as Command from "@recast/ui/command";
+	import * as Dialog from "@recast/ui/dialog";
 	import { cn } from "@recast/utils";
 	import type { RecastAction } from "./types";
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Navbar, Hero, FeatureGrid, Section, Container } from "$lib/components";
-	import { Button } from "@recast/ui";
+	import { Button } from "@recast/ui/button";
 </script>
 
 <svelte:head>

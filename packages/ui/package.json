@@ -3,13 +3,104 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "sideEffects": ["**/*.css"],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "svelte": "./src/lib/index.ts",
       "default": "./src/lib/index.ts"
     },
-    "./components/*": "./src/lib/components/*"
+    "./badge": {
+      "svelte": "./src/lib/components/ui/badge/index.ts",
+      "default": "./src/lib/components/ui/badge/index.ts"
+    },
+    "./button": {
+      "svelte": "./src/lib/components/ui/button/index.ts",
+      "default": "./src/lib/components/ui/button/index.ts"
+    },
+    "./button-group": {
+      "svelte": "./src/lib/components/ui/button-group/index.ts",
+      "default": "./src/lib/components/ui/button-group/index.ts"
+    },
+    "./card": {
+      "svelte": "./src/lib/components/ui/card/index.ts",
+      "default": "./src/lib/components/ui/card/index.ts"
+    },
+    "./checkbox": {
+      "svelte": "./src/lib/components/ui/checkbox/index.ts",
+      "default": "./src/lib/components/ui/checkbox/index.ts"
+    },
+    "./command": {
+      "svelte": "./src/lib/components/ui/command/index.ts",
+      "default": "./src/lib/components/ui/command/index.ts"
+    },
+    "./dialog": {
+      "svelte": "./src/lib/components/ui/dialog/index.ts",
+      "default": "./src/lib/components/ui/dialog/index.ts"
+    },
+    "./drawer": {
+      "svelte": "./src/lib/components/ui/drawer/index.ts",
+      "default": "./src/lib/components/ui/drawer/index.ts"
+    },
+    "./dropdown-menu": {
+      "svelte": "./src/lib/components/ui/dropdown-menu/index.ts",
+      "default": "./src/lib/components/ui/dropdown-menu/index.ts"
+    },
+    "./input": {
+      "svelte": "./src/lib/components/ui/input/index.ts",
+      "default": "./src/lib/components/ui/input/index.ts"
+    },
+    "./input-group": {
+      "svelte": "./src/lib/components/ui/input-group/index.ts",
+      "default": "./src/lib/components/ui/input-group/index.ts"
+    },
+    "./label": {
+      "svelte": "./src/lib/components/ui/label/index.ts",
+      "default": "./src/lib/components/ui/label/index.ts"
+    },
+    "./radio-group": {
+      "svelte": "./src/lib/components/ui/radio-group/index.ts",
+      "default": "./src/lib/components/ui/radio-group/index.ts"
+    },
+    "./select": {
+      "svelte": "./src/lib/components/ui/select/index.ts",
+      "default": "./src/lib/components/ui/select/index.ts"
+    },
+    "./separator": {
+      "svelte": "./src/lib/components/ui/separator/index.ts",
+      "default": "./src/lib/components/ui/separator/index.ts"
+    },
+    "./sheet": {
+      "svelte": "./src/lib/components/ui/sheet/index.ts",
+      "default": "./src/lib/components/ui/sheet/index.ts"
+    },
+    "./sidebar": {
+      "svelte": "./src/lib/components/ui/sidebar/index.ts",
+      "default": "./src/lib/components/ui/sidebar/index.ts"
+    },
+    "./skeleton": {
+      "svelte": "./src/lib/components/ui/skeleton/index.ts",
+      "default": "./src/lib/components/ui/skeleton/index.ts"
+    },
+    "./sonner": {
+      "svelte": "./src/lib/components/ui/sonner/index.ts",
+      "default": "./src/lib/components/ui/sonner/index.ts"
+    },
+    "./spinner": {
+      "svelte": "./src/lib/components/ui/spinner/index.ts",
+      "default": "./src/lib/components/ui/spinner/index.ts"
+    },
+    "./tabs": {
+      "svelte": "./src/lib/components/ui/tabs/index.ts",
+      "default": "./src/lib/components/ui/tabs/index.ts"
+    },
+    "./textarea": {
+      "svelte": "./src/lib/components/ui/textarea/index.ts",
+      "default": "./src/lib/components/ui/textarea/index.ts"
+    },
+    "./tooltip": {
+      "svelte": "./src/lib/components/ui/tooltip/index.ts",
+      "default": "./src/lib/components/ui/tooltip/index.ts"
+    }
   },
   "peerDependencies": {
     "svelte": "^5.0.0"

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button } from "@recast/ui";
+  import { Button } from "@recast/ui/button";
   import type { EditorStore } from "$lib/stores/editor-store.svelte";
   import { cn } from "@recast/utils";
   import {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from "@recast/ui";
+	import { Button } from "@recast/ui/button";
 	import { Container } from ".";
 	import { cn } from "@recast/utils";
 

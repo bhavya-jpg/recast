@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from "$app/state";
   import SearchCommandMenu from "$components/layout/SearchCommandMenu.svelte";
-  import { Button } from "@recast/ui";
-  import * as Sidebar from "@recast/ui";
+  import { Button } from "@recast/ui/button";
+  import * as Sidebar from "@recast/ui/sidebar";
   import { launchRecordingPanel } from "$lib/ipc";
   import { cn } from "@recast/utils";
   import { Download, Film, Hexagon, LayoutDashboard, Radio, Settings, SlidersHorizontal } from "@lucide/svelte";

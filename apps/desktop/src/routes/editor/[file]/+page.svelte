@@ -7,7 +7,7 @@
   import VideoPreview from "$components/editor/VideoPreview.svelte";
   import CustomTitlebar from "$components/layout/custom-titlebar.svelte";
   import EditorSkeleton from "$components/skeletons/EditorSkeleton.svelte";
-  import { Button } from "$components/ui/button";
+  import { Button } from "@recast/ui/button";
   import {
     autosaveProject,
     cancelExport,

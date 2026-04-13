@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { Button } from "@recast/ui";
-  import * as DropdownMenu from "@recast/ui";
-  import { Separator } from "@recast/ui";
-  import * as Tooltip from "@recast/ui";
+  import { Button } from "@recast/ui/button";
+  import * as DropdownMenu from "@recast/ui/dropdown-menu";
+  import { Separator } from "@recast/ui/separator";
+  import * as Tooltip from "@recast/ui/tooltip";
   import type {
     BackgroundType,
     EditorStore,

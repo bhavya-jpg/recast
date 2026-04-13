@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { Button } from "@recast/ui";
-  import * as Command from "@recast/ui";
-  import * as Dialog from "@recast/ui";
+  import { Button } from "@recast/ui/button";
+  import * as Command from "@recast/ui/command";
+  import * as Dialog from "@recast/ui/dialog";
   import { buildGlobalCommands } from "$lib/commands";
   import { commandPalette, type PaletteCommand } from "$lib/stores/command-palette.svelte";
   import { cn } from "@recast/utils";
