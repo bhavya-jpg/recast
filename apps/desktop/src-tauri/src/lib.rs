@@ -34,13 +34,26 @@ pub fn run() {
     // is undefined and synchronous calls like `platform()` throw at module
     // evaluation time, taking the whole frontend down. The Rust-only log plugin
     // can stay inside `setup()`.
-    if cfg!(debug_assertions) {
-        builder = builder.plugin(
-            tauri_plugin_log::Builder::default()
-                .level(log::LevelFilter::Info)
-                .build(),
-        );
-    }
+    //
+    // Why log in release too: without this, MSI/NSIS/DMG installs were
+    // silent — when a user hit a recording error there was no way to ask
+    // them for a log file, so every report had to be reproduced live.
+    // `tauri_plugin_log`'s defaults write to both stdout AND a rotating
+    // file under the OS log dir (Windows: `%LOCALAPPDATA%\com.nexonauts.recast\logs\`,
+    // macOS: `~/Library/Logs/com.nexonauts.recast/`, Linux:
+    // `~/.local/share/com.nexonauts.recast/logs/`). Release builds get
+    // Warn level so we don't bloat user disks with per-frame info noise;
+    // debug builds stay at Info for active dev work.
+    let log_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Info
+    } else {
+        log::LevelFilter::Warn
+    };
+    builder = builder.plugin(
+        tauri_plugin_log::Builder::default()
+            .level(log_level)
+            .build(),
+    );
 
     builder
         .setup(|app| {

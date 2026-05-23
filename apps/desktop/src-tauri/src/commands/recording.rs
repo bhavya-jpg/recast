@@ -84,13 +84,22 @@ pub fn start_recording(
     let warnings = state
         .recording_manager
         .start(target, output_dir, options.unwrap_or_default())
-        .map_err(|e| e.to_string())?;
+        .inspect_err(|e| log::error!("start_recording failed: {e:#}"))
+        .map_err(|e| format!("{e:#}"))?;
     Ok(RecordingStartResult { warnings })
 }
 
 #[tauri::command]
 pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
-    let artifacts = state.recording_manager.stop().map_err(|e| e.to_string())?;
+    // `{:#}` formats the full anyhow chain (top message + every `.context()`
+    // below it), so the JS-side alert sees the real cause instead of just
+    // the outermost label. Without this, errors like "encoder thread
+    // panicked" hid the underlying FFmpeg-process exit code.
+    let artifacts = state
+        .recording_manager
+        .stop()
+        .inspect_err(|e| log::error!("stop_recording failed: {e:#}"))
+        .map_err(|e| format!("{e:#}"))?;
     let dest = recasts_dir(&state);
     // Human-readable, sortable, searchable name (local time of capture) —
     // e.g. `Recast_2026-05-16_14-30-22.recast`.
@@ -137,7 +146,8 @@ pub fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
         edits_json: serde_json::to_string_pretty(&default_render_state)
             .unwrap_or_else(|_| "{}".into()),
     })
-    .map_err(|e| e.to_string())?;
+    .inspect_err(|e| log::error!("write_project failed: {e:#}"))
+    .map_err(|e| format!("{e:#}"))?;
 
     // Clean up temporary session files.
     let _ = fs::remove_file(&artifacts.recording_path);
