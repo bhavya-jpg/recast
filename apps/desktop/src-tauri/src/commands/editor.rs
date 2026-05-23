@@ -412,9 +412,31 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         return Ok(Vec::new());
     }
 
-    let interval = meta.duration / count as f64;
-    // Unique subdir per invocation so concurrent thumbnail requests (e.g. two
-    // editor tabs scrubbing at once) don't race on the same `thumb-N.jpg`.
+    let scale_width = if count <= 2 { 480 } else { 240 };
+
+    // The single-frame poster path stays a fast `-ss` seek + `-vframes 1`
+    // — that's a single decode at the requested timestamp, no full read.
+    if count == 1 {
+        let timestamp = meta.duration * 0.25;
+        return Ok(
+            extract_single_thumbnail(&media_path, timestamp, scale_width)
+                .map(|jpeg| {
+                    vec![format!(
+                        "data:image/jpeg;base64,{}",
+                        general_purpose::STANDARD.encode(jpeg)
+                    )]
+                })
+                .unwrap_or_default(),
+        );
+    }
+
+    // Timeline strip path: collect every thumbnail in ONE FFmpeg invocation
+    // using `fps=count/duration` + a sequential output pattern. Previously
+    // we spawned `count` separate FFmpeg processes (~200 ms codec init
+    // each), which compounded into ~4 s of blocking work on low-end
+    // dual-core CPUs before any thumbnail showed up. One spawn one decode
+    // pass is dramatically faster — and bumps from O(count × init) to
+    // O(decode) total wall time.
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -423,50 +445,51 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
         .join("recast-thumbnails")
         .join(format!("{}-{stamp}", std::process::id()));
     let _ = fs::create_dir_all(&temp_dir);
+
+    // `fps=count/duration` samples `count` frames evenly across the
+    // timeline. `vsync vfr` keeps FFmpeg from duplicating or dropping
+    // frames to match a constant output rate — we want exactly the
+    // samples the filter produces.
+    let fps_expr = format!("{count}/{:.6}", meta.duration.max(0.001));
+    let vf = format!("fps={fps_expr},scale={scale_width}:-1");
+    let pattern = temp_dir.join("thumb-%04d.jpg");
+    let mut command = Command::new(crate::ffmpeg::ffmpeg_path());
+    command.args([
+        "-y",
+        "-i",
+        &media_path.to_string_lossy(),
+        "-vf",
+        &vf,
+        "-vsync",
+        "vfr",
+        "-q:v",
+        "4",
+        pattern.to_string_lossy().as_ref(),
+    ]);
+    crate::ffmpeg::configure_silent_command(&mut command);
+
     let mut thumbnails = Vec::new();
-
-    let scale_width = if count <= 2 { 480 } else { 240 };
-
-    for index in 0..count {
-        // A single thumbnail is a poster frame: sample ~25% into the clip
-        // rather than at 0s, since the first frame of a screen recording is
-        // routinely black/blank. Multi-frame requests (the editor's timeline
-        // strip) keep the even spread starting at 0.
-        let timestamp = if count == 1 {
-            meta.duration * 0.25
-        } else {
-            index as f64 * interval
-        };
-        let thumb_path = temp_dir.join(format!("thumb-{index}.jpg"));
-        let mut command = Command::new(crate::ffmpeg::ffmpeg_path());
-        command.args([
-            "-y",
-            "-ss",
-            &format!("{timestamp:.2}"),
-            "-i",
-            &media_path.to_string_lossy(),
-            "-vframes",
-            "1",
-            "-vf",
-            &format!("scale={scale_width}:-1"),
-            "-q:v",
-            "4",
-            thumb_path.to_string_lossy().as_ref(),
-        ]);
-        crate::ffmpeg::configure_silent_command(&mut command);
-        let result = command.output();
-
-        if let Ok(output) = result {
-            if output.status.success() {
-                if let Ok(data) = fs::read(&thumb_path) {
-                    thumbnails.push(format!(
-                        "data:image/jpeg;base64,{}",
-                        general_purpose::STANDARD.encode(data)
-                    ));
-                }
+    if command
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        // FFmpeg's image2 muxer numbers from 1 and may produce ±1 frame
+        // around the requested `count` depending on rounding — read what's
+        // actually there and trim to `count`.
+        for index in 1..=count {
+            let thumb_path = temp_dir.join(format!("thumb-{index:04}.jpg"));
+            if let Ok(data) = fs::read(&thumb_path) {
+                thumbnails.push(format!(
+                    "data:image/jpeg;base64,{}",
+                    general_purpose::STANDARD.encode(data)
+                ));
+            }
+            let _ = fs::remove_file(&thumb_path);
+            if thumbnails.len() >= count as usize {
+                break;
             }
         }
-        let _ = fs::remove_file(&thumb_path);
     }
 
     // Best-effort removal of the now-empty per-invocation subdir. Ignore
@@ -474,6 +497,51 @@ fn generate_thumbnails_blocking(path: String, count: u32) -> Result<Vec<String>,
     let _ = fs::remove_dir(&temp_dir);
 
     Ok(thumbnails)
+}
+
+/// Pull a single thumbnail at `timestamp` (seconds). Used for poster
+/// frames where the timeline-strip's multi-frame batching would be
+/// overkill.
+fn extract_single_thumbnail(
+    media_path: &Path,
+    timestamp: f64,
+    scale_width: u32,
+) -> Option<Vec<u8>> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir()
+        .join("recast-thumbnails")
+        .join(format!("{}-{stamp}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+    let thumb_path = temp_dir.join("thumb.jpg");
+
+    let mut command = Command::new(crate::ffmpeg::ffmpeg_path());
+    command.args([
+        "-y",
+        "-ss",
+        &format!("{timestamp:.2}"),
+        "-i",
+        &media_path.to_string_lossy(),
+        "-vframes",
+        "1",
+        "-vf",
+        &format!("scale={scale_width}:-1"),
+        "-q:v",
+        "4",
+        thumb_path.to_string_lossy().as_ref(),
+    ]);
+    crate::ffmpeg::configure_silent_command(&mut command);
+
+    let result = command
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|_| fs::read(&thumb_path).ok());
+    let _ = fs::remove_file(&thumb_path);
+    let _ = fs::remove_dir(&temp_dir);
+    result
 }
 
 /// Pass 1 of the 2-pass GIF export. Consumes the source at the GIF's target

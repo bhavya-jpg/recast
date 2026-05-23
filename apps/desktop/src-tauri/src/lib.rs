@@ -102,6 +102,34 @@ pub fn run() {
                 project::autosave::cleanup_stale_sessions(std::path::Path::new(&dir));
             }
 
+            // Sweep abandoned `recast-thumbnails/*` subdirs left behind by
+            // crashed/killed editor sessions. The thumbnail extractor
+            // best-effort-removes its own per-invocation dir, but a process
+            // crash mid-scrub leaks the directory — on a long-running install
+            // these can accumulate gigabytes of orphaned JPEGs. Anything
+            // older than ~1 hour is safe to drop (no live process is still
+            // writing into it).
+            tauri::async_runtime::spawn_blocking(|| {
+                let thumb_root = std::env::temp_dir().join("recast-thumbnails");
+                let Ok(entries) = std::fs::read_dir(&thumb_root) else {
+                    return;
+                };
+                let cutoff =
+                    std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(3600));
+                for entry in entries.flatten() {
+                    let stale = entry
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .zip(cutoff)
+                        .map(|(modified, cutoff)| modified < cutoff)
+                        .unwrap_or(false);
+                    if stale {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

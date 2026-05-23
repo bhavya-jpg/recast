@@ -53,6 +53,12 @@
 
 	//  DOM refs & GL state 
 	let canvasEl: HTMLCanvasElement | null = $state(null);
+	// True once we've discovered the WebView doesn't expose WebGL2. The preview
+	// can't render without it (composite blends video + background + effects in
+	// a shader), so the user needs an actionable message — not a silently blank
+	// canvas. Surfaces on integrated GPUs old enough to predate WebGL2 (~2014)
+	// and on machines with broken/outdated graphics drivers.
+	let webgl2Unsupported = $state(false);
 	let containerEl: HTMLDivElement | null = $state(null);
 	/** Shrink-wrap around the WebGL canvas so the annotation overlay can sit
 	 * on top of it at the same rendered rect regardless of letterboxing. */
@@ -533,6 +539,7 @@ void main() {
 		});
 		if (!g) {
 			console.error("WebGL2 not supported in this WebView");
+			webgl2Unsupported = true;
 			return;
 		}
 		gl = g;
@@ -1334,6 +1341,24 @@ void main() {
 			bind:this={canvasEl}
 			class="block max-h-full max-w-full transition-opacity duration-200 ease-out motion-reduce:transition-none group-data-[annotations-active=true]/preview:opacity-90"
 		></canvas>
+		{#if webgl2Unsupported}
+			<!-- WebGL2 is required to composite the preview (background + zoom +
+			     cursor + effects all run in the fragment shader). Without it the
+			     canvas stays blank — surface an actionable message instead so the
+			     user knows it's a graphics-driver issue, not a broken app. -->
+			<div
+				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/95 p-6 text-center"
+				role="alert"
+			>
+				<div class="text-sm font-semibold text-foreground">
+					Preview unavailable on this device
+				</div>
+				<p class="max-w-md text-xs leading-relaxed text-muted-foreground">
+					Your graphics driver doesn't expose WebGL2, which Recast's preview compositor needs.
+					Updating your GPU driver (NVIDIA / AMD / Intel) usually fixes this. Export still works — the editor uses FFmpeg directly.
+				</p>
+			</div>
+		{/if}
 		<!-- Annotation scrim: subtle primary-tinted darkening sits between the
 			 WebGL composite and the annotation overlay so shapes pop. Stays out
 			 of the way (opacity 0) on every other tab. -->
