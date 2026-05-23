@@ -1,7 +1,6 @@
 import { dev } from "$app/environment";
 import { haveIBeenPwned } from "better-auth/plugins";
 
-import { sendTemplatedEmail } from "$lib/email";
 import { polarProductIdFor } from "$lib/billing/plans";
 import { tryGetPolarClient } from "$lib/billing/polar";
 import { downgradeToFree, upsertSubscription } from "$lib/billing/sync";
@@ -14,6 +13,7 @@ import {
 	organization as organizationTable,
 	user as userTable,
 } from "$lib/db/schema";
+import { sendTemplatedEmail } from "$lib/email";
 import { publicEnv } from "$lib/env/public";
 import { serverEnv } from "$lib/env/server";
 import {
@@ -43,6 +43,7 @@ function createAuth() {
 	return betterAuth({
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL ?? publicEnv().PUBLIC_APP_URL,
+		trustedOrigins: buildTrustedOrigins(),
 		database: drizzleAdapter(getDb(), { provider: "pg", schema }),
 		// `status` is an app-owned column, separate from the plugin-owned
 		// `role`. Surfaces on session.user so the dashboard load can read it.
@@ -121,6 +122,31 @@ export function getAuth(): AuthInstance {
 	if (cached) return cached;
 	cached = createAuth();
 	return cached;
+}
+
+// Production hosts the web app is served from. 
+const PRODUCTION_TRUSTED_ORIGINS = [
+	"https://recast.li",
+	"https://www.recast.li",
+	"https://recast.nexonauts.com",
+	"https://recast-web.vercel.app",
+];
+
+function buildTrustedOrigins(): string[] {
+	const env = serverEnv();
+	const merged = new Set<string>(PRODUCTION_TRUSTED_ORIGINS);
+	// In dev, accept the common localhost ports we serve from so the desktop
+	// shell (Tauri uses tauri://localhost / http://localhost) and the web
+	// dev server can both hit /api/auth without tripping the origin check.
+	if (dev) {
+		merged.add("http://localhost:5173");
+		merged.add("http://localhost:4420");
+		merged.add("http://localhost:4421");
+		merged.add("tauri://localhost");
+		merged.add("http://tauri.localhost");
+	}
+	for (const o of env.TRUSTED_ORIGINS) merged.add(o);
+	return [...merged];
 }
 
 function buildSocialProviders() {

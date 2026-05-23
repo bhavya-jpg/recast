@@ -1,6 +1,6 @@
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -9,6 +9,31 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 
 use crate::recording::{pipeline::RecordingPipeline, CaptureArea};
+
+/// Best-effort drain of FFmpeg's stderr after the process has exited.
+/// Returns up to ~4KB of the tail so the encoder error message
+/// surfaces *why* FFmpeg died (codec error, disk full, etc.) instead
+/// of the cryptic "The pipe is being closed. (os error 232)" the OS
+/// reports when we write to a dead child's stdin.
+fn drain_child_stderr(child: &mut Child) -> String {
+    let Some(mut stderr) = child.stderr.take() else {
+        return String::new();
+    };
+    let mut buf = String::new();
+    let _ = stderr.read_to_string(&mut buf);
+    // Tail-only — the trailing lines are where the actual fatal
+    // message lives; FFmpeg's startup chatter is noise.
+    if buf.len() > 4096 {
+        let cut = buf.len() - 4096;
+        // Skip to the next newline so we don't start mid-UTF8-codepoint.
+        if let Some(nl) = buf[cut..].find('\n') {
+            buf.drain(..cut + nl + 1);
+        } else {
+            buf.drain(..cut);
+        }
+    }
+    buf.trim().to_string()
+}
 
 /// Configuration for the live recording encoder.
 #[derive(Clone, Debug)]
@@ -106,9 +131,46 @@ pub fn spawn_encoder_loop(
                 .context("ffmpeg encoder stdin was not available")?;
             let stats = pipeline.stats();
 
+            // Frame counter — check FFmpeg's liveness periodically (every
+            // ~30 frames, ~0.5s at 60fps) instead of every iteration. The
+            // try_wait syscall is cheap but not free; checking each frame
+            // would add noticeable overhead to the hot path.
+            let mut frames_since_alive_check: u32 = 0;
+            const ALIVE_CHECK_EVERY: u32 = 30;
+
             loop {
                 if let Some(frame) = pipeline.pop() {
-                    stdin.write_all(&frame.data)?;
+                    // Detect FFmpeg early exit BEFORE writing — otherwise
+                    // write_all returns "The pipe is being closed.
+                    // (os error 232)" on Windows, which surfaces to the
+                    // user as a meaningless OS error instead of the actual
+                    // ffmpeg failure reason.
+                    if frames_since_alive_check >= ALIVE_CHECK_EVERY {
+                        frames_since_alive_check = 0;
+                        if let Ok(Some(status)) = child.try_wait() {
+                            drop(stdin);
+                            let stderr_tail = drain_child_stderr(&mut child);
+                            return Err(anyhow!(
+                                "ffmpeg encoder exited unexpectedly mid-recording \
+                                 (status: {status}). Last stderr output:\n{stderr_tail}"
+                            ));
+                        }
+                    }
+                    frames_since_alive_check += 1;
+
+                    if let Err(e) = stdin.write_all(&frame.data) {
+                        // Broken pipe — FFmpeg died between our liveness
+                        // check and this write. Surface the real reason
+                        // by draining stderr.
+                        drop(stdin);
+                        let _ = child.wait();
+                        let stderr_tail = drain_child_stderr(&mut child);
+                        return Err(anyhow!(
+                            "ffmpeg encoder stdin write failed ({e}). \
+                             FFmpeg likely exited mid-recording. \
+                             Last stderr output:\n{stderr_tail}"
+                        ));
+                    }
                     stats.encoded_frames.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
@@ -125,7 +187,8 @@ pub fn spawn_encoder_loop(
             let output = child.wait_with_output()?;
             if !output.status.success() {
                 return Err(anyhow!(
-                    "ffmpeg encoder failed: {}",
+                    "ffmpeg encoder failed (status: {}): {}",
+                    output.status,
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }

@@ -28,6 +28,22 @@ const optionalSecret = trimmed.pipe(z.string().min(1).optional());
 
 const optionalUrl = trimmed.pipe(z.url().optional());
 
+// Comma-separated list → string[]. Drops blanks so a trailing comma or stray
+// whitespace doesn't sneak an empty string into better-auth's allow-list.
+const optionalCsv = trimmed.pipe(
+	z
+		.string()
+		.optional()
+		.transform((v) =>
+			v
+				? v
+					.split(",")
+					.map((s) => s.trim())
+					.filter((s) => s.length > 0)
+				: [],
+		),
+);
+
 export const serverEnvSchema = z
 	.object({
 		// ── Database ────────────────────────────────────────────────────────
@@ -47,6 +63,11 @@ export const serverEnvSchema = z
 				),
 		),
 		BETTER_AUTH_URL: optionalUrl,
+		// Extra origins better-auth should accept beyond BETTER_AUTH_URL /
+		// PUBLIC_APP_URL. Comma-separated; supports wildcards (e.g.
+		// `https://*.vercel.app`). The known production hosts are merged in
+		// auth/server.ts, so leave this blank unless you're adding a new one.
+		TRUSTED_ORIGINS: optionalCsv,
 
 		// ── OAuth (optional pairs — see superRefine below) ──────────────────
 		GITHUB_CLIENT_ID: optionalSecret,

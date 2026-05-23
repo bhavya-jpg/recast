@@ -561,13 +561,6 @@
     if (isRecording) {
       try {
         await stopRecording();
-        isRecording = false;
-        recordingStartTime = null;
-        isPaused = false;
-        pausedAccumMs = 0;
-        pausedSince = null;
-        emit("camera-recording-stopped");
-        emit("refresh-recordings");
       } catch (e) {
         // Show the actual error, not a misleading "ffmpeg not installed"
         // suffix. By the time stop runs, start has already succeeded —
@@ -577,6 +570,22 @@
         // chasing missing-binary red herrings on bundles where FFmpeg
         // was actually present.
         notify("error", `Stop failed: ${e}`, 10000);
+      } finally {
+        // ALWAYS reset client-side state, even on stop failure. The Rust
+        // `RecordingManager::stop()` does `guard.take()` as its first
+        // operation — once that succeeds, the session is gone from the
+        // manager regardless of what later fails. Leaving `isRecording`
+        // stuck at `true` traps the user into clicking Stop again, which
+        // then errors with "recording is not running" because the session
+        // is already gone. Resetting here lets the user start a new
+        // recording immediately.
+        isRecording = false;
+        recordingStartTime = null;
+        isPaused = false;
+        pausedAccumMs = 0;
+        pausedSince = null;
+        emit("camera-recording-stopped");
+        emit("refresh-recordings");
       }
     } else {
       if (!selectedSource) return;
