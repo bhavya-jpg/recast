@@ -9,6 +9,7 @@
 			links: [
 				{ label: "Features", href: "/features" },
 				{ label: "Pricing", href: "/pricing" },
+				{ label: "Join Waitlist", href: "/waitlist" },
 			],
 		},
 		{

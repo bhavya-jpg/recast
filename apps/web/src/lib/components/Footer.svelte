@@ -14,6 +14,7 @@
 				{ label: "Features", href: "/features" },
 				{ label: "Pricing", href: "/pricing" },
 				{ label: "Download", href: "/download" },
+				{ label: "Join Waitlist", href: "/waitlist" },
 				{ label: "Changelog", href: "/changelog" },
 			],
 		},
