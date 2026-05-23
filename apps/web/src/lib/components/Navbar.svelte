@@ -18,7 +18,7 @@
 			links: [
 				{ label: "Changelog", href: "/changelog" },
 				{ label: "GitHub", href: "https://github.com/kanakkholwal/recast" },
-				{ label: "Contact", href: "mailto:recast@nexonauts.com" },
+				{ label: "Contact", href: "mailto:try-recast@gmail.com" },
 			],
 		},
 	];

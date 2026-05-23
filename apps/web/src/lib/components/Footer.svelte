@@ -37,7 +37,7 @@
 		{
 			title: "Company",
 			links: [
-				{ label: "Contact", href: "mailto:recast@nexonauts.com" },
+				{ label: "Contact", href: "mailto:try-recast@gmail.com" },
 				{
 					label: "X / Twitter",
 					href: "https://x.com/kanakkholwal",
@@ -55,7 +55,7 @@
 	const socials = [
 		{ icon: Github, href: "https://github.com/kanakkholwal/recast", label: "GitHub" },
 		{ icon: Twitter, href: "https://x.com/kanakkholwal", label: "X / Twitter" },
-		{ icon: Mail, href: "mailto:recast@nexonauts.com", label: "Email" },
+		{ icon: Mail, href: "mailto:try-recast@gmail.com", label: "Email" },
 	];
 </script>
 

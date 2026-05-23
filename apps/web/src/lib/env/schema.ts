@@ -33,6 +33,7 @@ const optionalUrl = trimmed.pipe(z.url().optional());
 const optionalCsv = trimmed.pipe(
 	z
 		.string()
+		.default(`https://recast.li,https://www.recast.li,https://recast.nexonauts.com`)
 		.optional()
 		.transform((v) =>
 			v
