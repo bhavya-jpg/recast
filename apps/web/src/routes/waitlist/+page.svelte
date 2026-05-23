@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import Logo from "$lib/logo.svelte";
+	import { ArrowLeft, ArrowRight, LoaderCircle, MailCheck, Sparkles } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import { Input } from "@recast/ui/input";
 	import { Label } from "@recast/ui/label";
 	import { toast } from "@recast/ui/sonner";
-	import { ArrowLeft, ArrowRight, LoaderCircle, MailCheck, Sparkles } from "@lucide/svelte";
 	import { untrack } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fly } from "svelte/transition";
@@ -134,7 +134,9 @@
 			{:else}
 				<form class="flex flex-col gap-3.5" onsubmit={submit}>
 					<Label class="flex flex-col items-stretch gap-1.5">
-						<span class="text-xs font-semibold text-foreground/85">Work email</span>
+						<span class="text-xs font-semibold text-foreground/85">
+							Your email
+						</span>
 						<Input
 							type="email"
 							required
