@@ -20,6 +20,14 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load `apps/desktop/.env` so dev overrides like `CLOUD_API_URL` reach
+    // the Rust side. dotenvy walks up from CWD looking for `.env`, so when
+    // `pnpm tauri dev` runs cargo from `src-tauri/` it finds the file one
+    // level up. Silent on missing/invalid file — release installs have no
+    // .env and that's fine.
+    #[cfg(debug_assertions)]
+    let _ = dotenvy::dotenv();
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

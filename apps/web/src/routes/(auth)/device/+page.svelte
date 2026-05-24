@@ -110,13 +110,10 @@
 
 	// Status returned by GET /device — "pending" means waiting on user
 	// approval (the normal case after a fresh device.code call); "approved"
-	// and "denied" mean someone already acted on this code (most likely the
-	// same user in another tab).
+	// is what we transition into right after the user clicks Approve (the
+	// load function re-runs via invalidateAll); "denied" means rejected.
 	const deviceStatus = $derived(
 		(data.device as { status?: string } | null)?.status ?? null,
-	);
-	const alreadyHandled = $derived(
-		deviceStatus === "approved" || deviceStatus === "denied",
 	);
 </script>
 
@@ -125,18 +122,12 @@
 	<meta name="robots" content="noindex,nofollow" />
 </svelte:head>
 
-<div class="relative grid min-h-screen place-items-center px-6 py-16 text-foreground">
-	<div
-		aria-hidden="true"
-		class="pointer-events-none absolute inset-0 -z-10"
-		style="background: radial-gradient(ellipse 70% 50% at 50% 0%, color-mix(in srgb, var(--color-primary) 9%, transparent), transparent 72%);"
-	></div>
-	<div
-		aria-hidden="true"
-		class="bg-grid bg-grid-fade pointer-events-none absolute inset-0 -z-10 opacity-30"
-	></div>
-
-	<div class="w-full max-w-md" in:fly={{ y: 16, duration: 520, easing: cubicOut }}>
+<!--
+	Outer wrapper (grid centering + gradient + back-to-site link) is provided
+	by `(auth)/+layout.svelte`. Don't re-add it here — the root layout already
+	excludes `/device` from the marketing chrome via the chromelessPaths set.
+-->
+<div class="w-full max-w-md" in:fly={{ y: 16, duration: 520, easing: cubicOut }}>
 		<div class="flex flex-col items-center text-center">
 			<a href="/" class="group/logo flex items-center gap-2.5" aria-label="Recast — home">
 				<span
@@ -159,8 +150,10 @@
 					Enter your device code
 				{:else if data.error}
 					Code not recognized
-				{:else if alreadyHandled}
-					This code has been used
+				{:else if deviceStatus === "approved"}
+					You're all set
+				{:else if deviceStatus === "denied"}
+					Sign-in denied
 				{:else}
 					Sign in to Recast Desktop?
 				{/if}
@@ -170,8 +163,10 @@
 					Type the code shown in your Recast Desktop app.
 				{:else if data.error}
 					{data.error}
-				{:else if alreadyHandled}
-					Start a new sign-in from the desktop app if you need another session.
+				{:else if deviceStatus === "approved"}
+					Your Recast Desktop is signed in. Hop back over — cloud sync is ready.
+				{:else if deviceStatus === "denied"}
+					The desktop request was rejected. Start a new sign-in from the app if this was a mistake.
 				{:else}
 					Approving links this account to the desktop so it can sync your recordings.
 				{/if}
@@ -234,15 +229,56 @@
 						Enter a different code
 					</Button>
 				</div>
-			{:else if alreadyHandled}
-				<div class="flex flex-col items-center gap-3 text-center text-sm text-muted-foreground">
-					{#if deviceStatus === "approved"}
-						<Check class="size-5 text-emerald-500" />
-						<span>Already approved — return to the desktop app.</span>
-					{:else}
-						<X class="size-5 text-destructive" />
-						<span>Already denied.</span>
-					{/if}
+			{:else if deviceStatus === "approved"}
+				<div
+					class="flex flex-col items-center gap-5 text-center"
+					in:fly={{ y: 8, duration: 360, easing: cubicOut }}
+				>
+					<div
+						class="relative grid size-16 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/30 dark:text-emerald-400"
+					>
+						<span
+							aria-hidden="true"
+							class="absolute inset-0 rounded-2xl bg-emerald-500/20 animate-ping opacity-60"
+						></span>
+						<Check class="relative size-7" strokeWidth={2.5} />
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<p class="text-[15px] font-semibold text-foreground">
+							Desktop signed in
+						</p>
+						<p class="text-[12.5px] leading-relaxed text-muted-foreground">
+							{#if data.viewer?.email}
+								Linked to <span class="font-medium text-foreground">{data.viewer.email}</span>.
+							{/if}
+							You can close this tab.
+						</p>
+					</div>
+					<div class="flex w-full flex-col gap-2 pt-1">
+						<Button href="/dashboard" variant="outline" size="sm" class="w-full gap-1.5">
+							<ArrowRight class="size-3.5" />
+							<span>Go to dashboard</span>
+						</Button>
+					</div>
+				</div>
+			{:else if deviceStatus === "denied"}
+				<div
+					class="flex flex-col items-center gap-5 text-center"
+					in:fly={{ y: 8, duration: 360, easing: cubicOut }}
+				>
+					<div
+						class="grid size-16 place-items-center rounded-2xl bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/30"
+					>
+						<X class="size-7" strokeWidth={2.5} />
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<p class="text-[15px] font-semibold text-foreground">
+							Sign-in denied
+						</p>
+						<p class="text-[12.5px] leading-relaxed text-muted-foreground">
+							The desktop won't be signed in. Start a new sign-in from your Recast Desktop app if this was a mistake.
+						</p>
+					</div>
 				</div>
 			{:else}
 				<!-- Authenticated + bound. Show approval card with the code for
@@ -294,4 +330,3 @@
 			{/if}
 		</div>
 	</div>
-</div>
