@@ -262,6 +262,13 @@ jobs:
   generate-manifest:
     name: Generate updater manifest
     needs: [create-release, build-desktop]
+    # Run even when one build leg fails — `generate-latest-json.mjs` warns
+    # and skips platforms whose `.sig` artifact is missing, so the manifest
+    # still publishes for the legs that succeeded. Only `!cancelled()` is
+    # needed (not `always()`) because a cancelled run shouldn't produce a
+    # half-finished manifest. If every leg fails, the script's final
+    # zero-platform guard surfaces a clear error.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
