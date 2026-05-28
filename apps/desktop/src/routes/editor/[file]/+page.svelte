@@ -35,9 +35,11 @@
     CheckCircle2,
     FlaskConical,
     FolderOpen,
+    HardDriveUpload,
     VolumeX,
     X,
   } from "@lucide/svelte";
+  import { gdrive } from "$lib/stores/gdrive.svelte";
   import { Button } from "@recast/ui/button";
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
@@ -566,6 +568,13 @@
 
     if (next.kind === "success") {
       toast.success("Export complete");
+      // Refresh the tray's Recent Exports submenu so this export is
+      // selectable from there immediately. Pass `isRecording: null` to
+      // signal "list changed, don't touch the recording flag" — the
+      // panel window is the authoritative source for that.
+      void import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke("refresh_tray", { isRecording: null }).catch(() => {});
+      });
     } else if (next.kind === "cancelled") {
       toast.info("Export cancelled");
     } else {
@@ -752,6 +761,29 @@
       await invoke("open_file_location", { path: exportResult.path });
     } catch (err) {
       toast.error(`Could not open folder: ${err}`);
+    }
+  }
+
+  /**
+   * Push the most recent export to Google Drive. If Drive isn't connected
+   * yet we send the user to Settings instead — connecting opens a browser
+   * tab and can't sensibly happen from this modal-style success card.
+   */
+  async function uploadExportToDrive() {
+    if (exportResult?.kind !== "success") return;
+    await gdrive.init();
+    if (!gdrive.connected) {
+      toast.info("Connect Google Drive in Settings first.");
+      void goto("/settings");
+      return;
+    }
+    try {
+      await gdrive.upload(exportResult.path);
+      // Progress + completion surface through the corner-notifications
+      // store — the success card stays put so the user can also reveal
+      // in folder or dismiss.
+    } catch (e) {
+      toast.error(`Drive upload failed: ${e}`);
     }
   }
 
@@ -1392,6 +1424,15 @@
               <Button variant="ghost" size="xs" onclick={dismissExportResult}
                 >Dismiss</Button
               >
+              <Button
+                variant="outline"
+                size="xs"
+                class="gap-1.5"
+                onclick={uploadExportToDrive}
+              >
+                <HardDriveUpload size={11} />
+                Upload to Drive
+              </Button>
               <Button
                 variant="default"
                 size="xs"

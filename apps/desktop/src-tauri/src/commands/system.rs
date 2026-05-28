@@ -105,6 +105,23 @@ pub fn get_last_source(state: State<'_, AppState>) -> Result<Option<LastSource>,
 }
 
 #[tauri::command]
+pub fn get_close_to_tray(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.config.lock().close_to_tray)
+}
+
+#[tauri::command]
+pub fn set_close_to_tray(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut config = state.config.lock();
+    config.close_to_tray = enabled;
+    save_config(&app, &config);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_last_source(
     app: AppHandle,
     state: State<'_, AppState>,

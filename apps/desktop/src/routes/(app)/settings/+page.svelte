@@ -1,6 +1,7 @@
 <script lang="ts">
   import Logo from "$components/logo.svelte";
   import CloudSignIn from "$components/settings/CloudSignIn.svelte";
+  import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
   import {
@@ -43,6 +44,7 @@
   let outputDir = $state("");
   let currentTheme = $state<Theme>("system");
   let editorWindow = $state<EditorBehavior>("navigate");
+  let closeToTray = $state(true);
   // Default to the middle tab so the visual ordering reads naturally
   // (general — local — cloud) while landing the user on the daily-use
   // panel (output dir, profiles, editor behavior).
@@ -80,6 +82,26 @@
       outputDir = await getOutputDir();
     } catch (e) {
       toast.error(`Could not load settings: ${e}`);
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      closeToTray = await invoke<boolean>("get_close_to_tray");
+    } catch {
+      // Pre-tray builds or non-Tauri preview — leave the default and let
+      // the UI render the optimistic value.
+    }
+  }
+
+  async function toggleCloseToTray() {
+    const next = !closeToTray;
+    closeToTray = next;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_close_to_tray", { enabled: next });
+    } catch (e) {
+      // Roll back on failure so the UI mirrors the actual persisted state.
+      closeToTray = !next;
+      toast.error(`Could not update setting: ${e}`);
     }
   }
 
@@ -387,6 +409,31 @@
                   <CloudSignIn />
                 </div>
               </section>
+
+              <!-- Google Drive connection. Independent of the cloud Account
+                   section above: signing into Recast Cloud and connecting
+                   Google Drive are separate authentications. Both belong on
+                   the Cloud tab since they're both external integrations
+                   that take exports off this machine. -->
+              <section id="settings-google-drive" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <HardDrive class="size-3 text-primary" />
+                    Google Drive
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Upload exports to your own Drive — files land in a private
+                    /Recast/ folder.
+                  </p>
+                </div>
+                <div
+                  class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <GoogleDriveConnection />
+                </div>
+              </section>
         </Tabs.Content>
 
         <Tabs.Content value="general" class="flex min-w-0 flex-col gap-8">
@@ -441,6 +488,56 @@
                         </button>
                       {/each}
                     </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- System -->
+              <section id="settings-system" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    System
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Behavior when you close the main window.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Minimize to tray on close
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {closeToTray
+                          ? "Closing the window hides Recast to the system tray. Quit from the tray menu to fully exit."
+                          : "Closing the window quits Recast immediately."}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Minimize to tray on close"
+                      aria-checked={closeToTray}
+                      onclick={toggleCloseToTray}
+                      class={cn(
+                        "flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+                        closeToTray
+                          ? "bg-primary"
+                          : "bg-input ring-1 ring-inset ring-border/50",
+                      )}
+                    >
+                      <span
+                        class={cn(
+                          "size-4 rounded-full bg-card shadow-sm transition-transform",
+                          closeToTray ? "translate-x-4.5" : "translate-x-0.5",
+                        )}
+                      ></span>
+                    </button>
                   </div>
                 </div>
               </section>

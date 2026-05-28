@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { ConfirmDialog, PlayerDialog, RenameDialog } from "$components/recast";
   import {
     deleteFile,
@@ -16,6 +17,7 @@
     Download,
     FolderOpen,
     Grid3x3,
+    HardDriveUpload,
     List,
     ListChecks,
     MoreHorizontal,
@@ -27,6 +29,7 @@
     Trash2,
     X,
   } from "@lucide/svelte";
+  import { gdrive } from "$lib/stores/gdrive.svelte";
   import { Badge } from "@recast/ui/badge";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
@@ -165,6 +168,26 @@
       thumbnails = rest;
     }
     toast.success(`Moved "${entry.filename}" to trash`);
+  }
+
+  /**
+   * Drive upload from the exports list. Routes to Settings if Drive isn't
+   * connected yet — the consent flow opens a browser tab and shouldn't
+   * happen inline from a dropdown menu.
+   */
+  async function uploadToDrive(entry: RecordingEntry) {
+    await gdrive.init();
+    if (!gdrive.connected) {
+      toast.info("Connect Google Drive in Settings first.");
+      void goto("/settings");
+      return;
+    }
+    try {
+      await gdrive.upload(entry.path);
+      // Progress is surfaced via the corner-notification stack.
+    } catch (e) {
+      toast.error(`Drive upload failed: ${e}`);
+    }
   }
 
   const filtered = $derived.by(() => {
@@ -602,6 +625,10 @@
                       </DropdownMenu.Item>
                       <DropdownMenu.Item onSelect={() => copyPath(entry)}>
                         <CopyIcon /> Copy path
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator />
+                      <DropdownMenu.Item onSelect={() => uploadToDrive(entry)}>
+                        <HardDriveUpload /> Upload to Drive
                       </DropdownMenu.Item>
                       <DropdownMenu.Separator />
                       <DropdownMenu.Item

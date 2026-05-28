@@ -111,12 +111,31 @@ pub struct LastSource {
     pub region_height: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub output_dir: Option<String>,
     #[serde(default)]
     pub last_source: Option<LastSource>,
+    /// When true, closing the main window hides it to the system tray instead
+    /// of exiting. The tray's "Quit Recast" item is the canonical exit. Users
+    /// who don't want background tray presence can flip this off in Settings.
+    #[serde(default = "default_close_to_tray")]
+    pub close_to_tray: bool,
+}
+
+fn default_close_to_tray() -> bool {
+    true
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: None,
+            last_source: None,
+            close_to_tray: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

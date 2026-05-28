@@ -59,6 +59,7 @@
 	--media-button-icon-height: 16px;
 	--media-button-icon-width: 16px;
 	--media-button-padding: 0;
+	--media-focus-ring-color: var(--color-primary);
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -144,6 +145,40 @@
 	align-items: center;
 }
 
+.recast-topbar {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	padding: 10px 12px;
+	background: linear-gradient(
+		to bottom,
+		rgba(0, 0, 0, 0.66),
+		rgba(0, 0, 0, 0.08)
+	);
+	pointer-events: none;
+}
+
+.recast-titleblock {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.recast-title {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.2;
+	color: rgba(255, 255, 255, 0.96);
+	text-wrap: balance;
+}
+
+.recast-shortcuts {
+	font-size: 10px;
+	line-height: 1.2;
+	color: rgba(255, 255, 255, 0.62);
+}
+
 /* ──────────────────────────────────────────────────────────────────
    7. Bottom-bar buttons — shadcn ghost vocabulary
    ────────────────────────────────────────────────────────────────── */
@@ -163,6 +198,11 @@
 .recast-btn:focus-visible {
 	outline: 2px solid var(--color-primary);
 	outline-offset: 1px;
+}
+
+.recast-player:focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
 }
 
 /* Text-only buttons (playback rate). Tighter padding, mono digit width
@@ -312,4 +352,23 @@ media-controller.recast-player:not([mediapaused]) .recast-big-play {
 
 .recast-preview-time {
 	margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+	.recast-control-bar {
+		padding-inline: 6px;
+	}
+
+	.recast-volume {
+		display: none;
+	}
+
+	.recast-shortcuts {
+		display: none;
+	}
+
+	.recast-big-play {
+		width: 60px;
+		height: 60px;
+	}
 }
