@@ -9,7 +9,11 @@ import {
 	getQuotaSnapshot,
 	type UploadDenial,
 } from "$lib/storage/quota";
-import { isR2Configured, recastObjectKey, signUploadUrl } from "$lib/storage/r2";
+import {
+	isStorageConfigured,
+	recastObjectKey,
+	signUploadUrl,
+} from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = {
@@ -47,7 +51,7 @@ const BodySchema = z.object({
  * back so a 5xx doesn't leak placeholder rows into the user's library.
  */
 export const POST: RequestHandler = async ({ request }) => {
-	if (!isR2Configured()) error(503, "Cloud uploads are not configured");
+	if (!isStorageConfigured()) error(503, "Cloud uploads are not configured");
 
 	const session = (await getAuth()
 		.api.getSession({ headers: request.headers })
@@ -122,9 +126,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		status: "draft",
 	});
 
-	let uploadUrl: string;
+	let upload;
 	try {
-		uploadUrl = await signUploadUrl({ key, contentType: "video/mp4" });
+		upload = await signUploadUrl({ key, contentType: "video/mp4" });
 	} catch (err) {
 		// Roll back the draft row — leaving it would count against the
 		// active-recasts cap (once /complete bumps usage) for a recast
@@ -134,11 +138,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		error(500, "Could not generate upload URL");
 	}
 
+	// `upload` is a discriminated union from files-sdk:
+	//   PUT  → { method: "PUT", url, headers? }
+	//   POST → { method: "POST", url, fields }
+	// Client picks the right `fetch()` shape based on `method`.
 	return json({
 		ok: true,
 		recastId,
 		key,
-		uploadUrl,
+		upload,
 		expiresInSeconds: 15 * 60,
 	});
 };

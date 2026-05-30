@@ -12,7 +12,9 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "r2:setup": "node scripts/r2-setup.mjs",
+    "cron:expire": "node scripts/cron-expire.mjs"
   },
   "devDependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -33,6 +35,9 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1057.0",
+    "@aws-sdk/s3-presigned-post": "^3.1057.0",
+    "@aws-sdk/s3-request-presigner": "^3.1057.0",
     "@fontsource-variable/instrument-sans": "^5.2.8",
     "@lucide/svelte": "^0.577.0",
     "@polar-sh/better-auth": "^1.8.4",
@@ -43,6 +48,7 @@
     "bits-ui": "^2.16.3",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "files-sdk": "^1.6.0",
     "gsap": "^3.15.0",
     "mode-watcher": "^1.1.0",
     "nanoid": "^5.1.11",

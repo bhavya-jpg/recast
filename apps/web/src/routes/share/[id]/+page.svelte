@@ -31,7 +31,7 @@
 	  User,
 	  Users,
 	} from "@lucide/svelte";
-	import { goto } from "$app/navigation";
+	import { goto, invalidateAll } from "$app/navigation";
 	import { authClient } from "$lib/auth/client";
 	// Alias because the local `mode` ($state for view mode) collides with
 	// mode-watcher's exported reactor of the same name.
@@ -62,6 +62,41 @@
 	const recast = $derived(okAccess?.recast);
 	const shareMeta = $derived(okAccess?.share);
 	const canManage = $derived(okAccess?.canManage ?? false);
+	// `requiresPassword` is set by the page loader when the share has a
+	// passwordHash and the viewer doesn't carry a valid unlock cookie. In
+	// that case `recast.src` is empty and we render the prompt below
+	// instead of the player. On a successful unlock we `invalidateAll()`
+	// so the loader re-runs, signs the URL, and the player mounts.
+	const requiresPassword = $derived(
+		Boolean(okAccess && "requiresPassword" in access && access.requiresPassword),
+	);
+	let passwordInput = $state("");
+	let unlocking = $state(false);
+	let unlockError = $state<string | null>(null);
+	async function submitUnlock(e: SubmitEvent) {
+		e.preventDefault();
+		if (!shareMeta || unlocking || !passwordInput) return;
+		unlocking = true;
+		unlockError = null;
+		try {
+			const res = await fetch(`/api/share/${shareMeta.slug}/unlock`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ password: passwordInput }),
+			});
+			if (!res.ok) {
+				unlockError =
+					res.status === 401 ? "Wrong password. Try again." : "Couldn't unlock.";
+				return;
+			}
+			passwordInput = "";
+			await invalidateAll();
+		} catch {
+			unlockError = "Network error. Try again.";
+		} finally {
+			unlocking = false;
+		}
+	}
 	// This dropdown only writes the legacy {public, team, private} triplet
 	// — the new {workspace, selected} scopes come from a richer share modal
 	// that isn't on this page yet. Coerce incoming server values into the
@@ -606,6 +641,64 @@
 				</Button>
 			</div>
 		</div>
+	</div>
+{:else if requiresPassword}
+	<!-- Password-protected share. Same chrome as the denial card so the
+	     unlock experience reads as a single page rather than a hard
+	     redirect. On success we invalidate the page data; the loader
+	     re-runs with the unlock cookie in place and signs the URL. -->
+	<div class="relative grid min-h-screen place-items-center px-6 py-16 text-foreground">
+		<div
+			aria-hidden="true"
+			class="pointer-events-none absolute inset-0 -z-10"
+			style="background: radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--color-primary) 6%, transparent), transparent 70%);"
+		></div>
+		<div
+			aria-hidden="true"
+			class="bg-grid bg-grid-fade pointer-events-none absolute inset-0 -z-10 opacity-25"
+		></div>
+
+		<form
+			class="glass-card w-full max-w-md rounded-2xl border border-border-low/40 p-7 shadow-craft-xl"
+			in:scale={{ start: 0.96, duration: 320, easing: quintOut, opacity: 0.6 }}
+			onsubmit={submitUnlock}
+		>
+			<div class="flex items-start gap-3">
+				<span class="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-border/40">
+					<Lock class="size-5" />
+				</span>
+				<div class="min-w-0">
+					<h1 class="text-lg font-semibold tracking-tight">Password required</h1>
+					<p class="mt-1 text-sm text-muted-foreground">
+						This recast is password-protected. Enter the password the owner shared with you.
+					</p>
+				</div>
+			</div>
+
+			<label class="mt-5 block">
+				<span class="sr-only">Password</span>
+				<input
+					type="password"
+					required
+					autocomplete="current-password"
+					bind:value={passwordInput}
+					class="w-full rounded-lg border border-border-low/70 bg-background/80 px-3.5 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary/60"
+					placeholder="Password"
+					disabled={unlocking}
+				/>
+			</label>
+
+			{#if unlockError}
+				<p class="mt-2 text-xs text-destructive">{unlockError}</p>
+			{/if}
+
+			<div class="mt-4 flex flex-col gap-2">
+				<Button type="submit" disabled={unlocking || !passwordInput} class="gap-2">
+					{unlocking ? "Unlocking…" : "Unlock"}
+					{#if !unlocking}<ArrowRight class="size-3.5" />{/if}
+				</Button>
+			</div>
+		</form>
 	</div>
 {:else}
 <!-- Cinema mode renders a completely different shell: full-bleed black

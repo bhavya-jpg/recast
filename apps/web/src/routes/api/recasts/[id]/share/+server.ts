@@ -12,6 +12,7 @@ import {
 	user,
 } from "$lib/db/schema";
 import { publicEnv } from "$lib/env/public";
+import { hashSharePassword } from "$lib/share/password";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string } };
@@ -127,7 +128,7 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 		.limit(1);
 	const isPro = sub?.plan === "pro";
 
-	const passwordHash = await maybeHashPassword(body.password);
+	const passwordHash = await hashSharePassword(body.password);
 	const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
 
 	// Slug generation — retry a couple of times on the (vanishingly rare)
@@ -262,27 +263,3 @@ async function resolveInvitees(
 	}));
 }
 
-/**
- * Hash an optional password for `share.passwordHash`. Empty / undefined
- * returns null. Uses Web Crypto SHA-256 with a per-share salt prepended
- * to keep the verify path edge-runtime-compatible (no bcrypt dep at v1
- * since we're not protecting against offline attacks here — link leak
- * is the primary threat and even SHA-256 is overkill for that).
- *
- * Salt format: hex(16-byte random) + ":" + hex(sha256(salt + password)).
- * `verifyPassword` (later, in /unlock endpoint) splits on ":" to verify.
- */
-async function maybeHashPassword(input: string | undefined): Promise<string | null> {
-	if (!input || input.length === 0) return null;
-	const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-	const salt = hex(saltBytes);
-	const data = new TextEncoder().encode(salt + input);
-	const digest = await crypto.subtle.digest("SHA-256", data);
-	return `${salt}:${hex(new Uint8Array(digest))}`;
-}
-
-function hex(bytes: Uint8Array): string {
-	let out = "";
-	for (const b of bytes) out += b.toString(16).padStart(2, "0");
-	return out;
-}

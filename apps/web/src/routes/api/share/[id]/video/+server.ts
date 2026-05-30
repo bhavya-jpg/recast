@@ -3,7 +3,12 @@ import { and, eq } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { member, recast, share, shareMember, user } from "$lib/db/schema";
-import { isR2Configured, signDownloadUrl } from "$lib/storage/r2";
+import {
+	constantTimeEquals,
+	unlockCookieName,
+	unlockToken,
+} from "$lib/share/password";
+import { isStorageConfigured, signDownloadUrl } from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = {
@@ -31,8 +36,8 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1h
  * setting the cookie is a follow-up; this handler refuses 401 with a
  * `reason: "password_required"` body so the player can render the prompt.
  */
-export const GET: RequestHandler = async ({ params, request }) => {
-	if (!isR2Configured()) error(503, "Cloud playback is not configured");
+export const GET: RequestHandler = async ({ params, request, cookies }) => {
+	if (!isStorageConfigured()) error(503, "Cloud playback is not configured");
 
 	const db = getDb();
 
@@ -126,12 +131,14 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	}
 
 	if (s.passwordHash) {
-		// Unlock cookie flow is a follow-up; for now block here so the
-		// player knows to render the password prompt instead of a player.
-		return json(
-			{ ok: false, reason: "password_required" },
-			{ status: 401 },
-		);
+		const got = cookies.get(unlockCookieName(s.slug));
+		const expected = await unlockToken(s.slug);
+		if (!got || !constantTimeEquals(got, expected)) {
+			return json(
+				{ ok: false, reason: "password_required" },
+				{ status: 401 },
+			);
+		}
 	}
 
 	const [r] = await db

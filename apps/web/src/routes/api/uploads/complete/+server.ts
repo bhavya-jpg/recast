@@ -5,7 +5,7 @@ import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { recast } from "$lib/db/schema";
 import { bumpUsageOnUpload, getQuotaSnapshot } from "$lib/storage/quota";
-import { deleteObject, isR2Configured, statObject } from "$lib/storage/r2";
+import { deleteObject, isStorageConfigured, statObject } from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = { user: { id: string } };
@@ -34,7 +34,7 @@ const BodySchema = z.object({
  * may retry on flaky networks after a successful upload + dropped reply.
  */
 export const POST: RequestHandler = async ({ request }) => {
-	if (!isR2Configured()) error(503, "Cloud uploads are not configured");
+	if (!isStorageConfigured()) error(503, "Cloud uploads are not configured");
 
 	const session = (await getAuth()
 		.api.getSession({ headers: request.headers })

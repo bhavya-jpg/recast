@@ -16,9 +16,14 @@ import { z } from "zod";
  *   4. Read it from `serverEnv` / `publicEnv` — never from `$env/...` directly.
  */
 
+// `optional()` first so a missing var (input === undefined) passes through
+// the pipe without tripping the inner `z.string()` check. Then trim and
+// collapse empty/whitespace-only values to `undefined` so the downstream
+// `.optional()` / required checks see a clean state.
 const trimmed = z
 	.string()
-	.transform((v) => v.trim())
+	.optional()
+	.transform((v) => (v ?? "").trim())
 	.transform((v) => (v.length === 0 ? undefined : v));
 
 // Treats `""` (the default in .env.example for blank-out fields) the same as
@@ -88,12 +93,48 @@ export const serverEnvSchema = z
 			.pipe(z.string().min(1).optional())
 			.transform((v) => v ?? "Recast <hello@recast.nexonauts.com>"),
 
+		// ── Cloud storage provider switch ───────────────────────────────────
+		// "r2" (default) | "s3" | "cloudinary" | "azure" | "gcs". Each
+		// provider's credentials live in its own block below; only the
+		// active provider's block needs to be set.
+		STORAGE_PROVIDER: trimmed
+			.pipe(z.enum(["r2", "s3", "cloudinary", "azure", "gcs"]).optional())
+			.optional(),
+
 		// ── Cloudflare R2 (all-or-nothing quartet, see superRefine below) ───
 		R2_ACCOUNT_ID: optionalSecret,
 		R2_ACCESS_KEY_ID: optionalSecret,
 		R2_SECRET_ACCESS_KEY: optionalSecret,
 		R2_BUCKET: optionalSecret,
 		R2_PUBLIC_URL: optionalUrl,
+
+		// ── AWS S3 (or S3-compat: MinIO, Wasabi, B2, DO Spaces) ─────────────
+		S3_REGION: optionalSecret,
+		S3_BUCKET: optionalSecret,
+		S3_ACCESS_KEY_ID: optionalSecret,
+		S3_SECRET_ACCESS_KEY: optionalSecret,
+		S3_ENDPOINT: optionalUrl, // for S3-compat hosts; leave blank for AWS
+		S3_PUBLIC_URL: optionalUrl,
+
+		// ── Cloudinary ──────────────────────────────────────────────────────
+		CLOUDINARY_CLOUD_NAME: optionalSecret,
+		CLOUDINARY_API_KEY: optionalSecret,
+		CLOUDINARY_API_SECRET: optionalSecret,
+
+		// ── Azure Blob Storage ──────────────────────────────────────────────
+		AZURE_STORAGE_ACCOUNT: optionalSecret,
+		AZURE_STORAGE_KEY: optionalSecret,
+		AZURE_BLOB_CONTAINER: optionalSecret,
+		AZURE_PUBLIC_URL: optionalUrl,
+
+		// ── Google Cloud Storage ────────────────────────────────────────────
+		GCS_BUCKET: optionalSecret,
+		// Paste the entire service-account JSON as a single line.
+		GCS_SERVICE_ACCOUNT_JSON: optionalSecret,
+		GCS_PUBLIC_URL: optionalUrl,
+
+		// ── Cron secret (gate /api/cron/* endpoints) ────────────────────────
+		CRON_SECRET: optionalSecret,
 
 		// ── Runtime mode (set by hosts like Vercel/Node) ─────────────────────
 		NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
