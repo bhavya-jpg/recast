@@ -1113,7 +1113,7 @@
 								<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-70"></span>
 								<span class="relative inline-flex size-1.5 rounded-full bg-primary"></span>
 							</span>
-							v0.1 beta · ready when you are
+							v0.2 beta · ready when you are
 						</div>
 
 						<h2 class="text-balance mt-8 text-4xl font-semibold leading-[1.02] tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-[4.25rem]">
