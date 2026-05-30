@@ -34,9 +34,13 @@
   import {
     ArrowLeft,
     CheckCircle2,
+    Copy,
+    ExternalLink,
     FlaskConical,
     FolderOpen,
     HardDriveUpload,
+    RefreshCw,
+    TriangleAlert,
     VolumeX,
     X,
   } from "@lucide/svelte";
@@ -779,11 +783,56 @@
     }
     try {
       await gdrive.upload(exportResult.path);
-      // Progress + completion surface through the corner-notifications
-      // store — the success card stays put so the user can also reveal
-      // in folder or dismiss.
+      // Progress + completion surface inline via successUpload (below) AND
+      // through the corner-notifications store, so the user can still track
+      // the upload if they dismiss the success card.
     } catch (e) {
       toast.error(`Drive upload failed: ${e}`);
+    }
+  }
+
+  // Mirror the export-success card's path so the upload state below can key
+  // off it reactively. Null whenever the dialog isn't in the success state.
+  const successPath = $derived(
+    exportResult?.kind === "success" ? exportResult.path : null,
+  );
+  // Most-recent upload (any status) targeting the freshly-exported file —
+  // drives the inline progress/result rendering inside the success card.
+  // Survives status transitions so we can show the completed state too.
+  const successUpload = $derived.by(() => {
+    if (!successPath) return undefined;
+    const list = gdrive.activeUploads.filter(
+      (u) => u.sourcePath === successPath,
+    );
+    list.sort((a, b) => b.uploadId.localeCompare(a.uploadId));
+    return list[0];
+  });
+  const successUploadPct = $derived(
+    successUpload && successUpload.totalBytes
+      ? Math.min(
+          100,
+          Math.round(
+            (successUpload.bytesSent / successUpload.totalBytes) * 100,
+          ),
+        )
+      : 0,
+  );
+
+  async function copyDriveLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Drive link copied.");
+    } catch (e) {
+      toast.error(`Could not copy link: ${e}`);
+    }
+  }
+
+  async function openDriveLink(link: string) {
+    try {
+      const { openUrl } = await import("@tauri-apps/plugin-opener");
+      await openUrl(link);
+    } catch {
+      window.open(link, "_blank", "noopener");
     }
   }
 
@@ -1412,6 +1461,69 @@
             >
               {exportResult.path}
             </p>
+
+            {#if successUpload}
+              <div
+                class="mt-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5"
+                aria-live="polite"
+              >
+                <div class="flex items-center gap-2">
+                  {#if successUpload.status === "uploading"}
+                    <RefreshCw
+                      size={12}
+                      class="shrink-0 animate-spin text-primary"
+                    />
+                    <span
+                      class="text-[11px] font-medium text-foreground"
+                    >
+                      Uploading to Drive
+                    </span>
+                    <span
+                      class="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground"
+                    >
+                      {successUploadPct}%
+                    </span>
+                  {:else if successUpload.status === "complete"}
+                    <CheckCircle2
+                      size={12}
+                      class="shrink-0 text-success"
+                    />
+                    <span class="text-[11px] font-medium text-foreground">
+                      Uploaded to Drive
+                    </span>
+                  {:else if successUpload.status === "cancelled"}
+                    <X size={12} class="shrink-0 text-muted-foreground" />
+                    <span class="text-[11px] font-medium text-foreground">
+                      Upload cancelled
+                    </span>
+                  {:else}
+                    <TriangleAlert
+                      size={12}
+                      class="shrink-0 text-destructive"
+                    />
+                    <span class="text-[11px] font-medium text-foreground">
+                      Upload failed
+                    </span>
+                  {/if}
+                </div>
+
+                {#if successUpload.status === "uploading"}
+                  <div class="mt-2 h-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      class="h-full rounded-full bg-primary transition-[width] duration-200"
+                      style="width: {successUploadPct}%"
+                    ></div>
+                  </div>
+                {:else if successUpload.status === "error" && successUpload.error}
+                  <p
+                    class="mt-1.5 text-[10.5px] leading-snug text-muted-foreground"
+                    title={successUpload.error}
+                  >
+                    {successUpload.error}
+                  </p>
+                {/if}
+              </div>
+            {/if}
           </div>
           <footer
             class="flex h-10 items-center justify-between gap-2 border-t border-border/60 bg-muted/30 px-3 text-[11px] text-muted-foreground"
@@ -1424,15 +1536,51 @@
               <Button variant="ghost" size="xs" onclick={dismissExportResult}
                 >Dismiss</Button
               >
-              <Button
-                variant="outline"
-                size="xs"
-                class="gap-1.5"
-                onclick={uploadExportToDrive}
-              >
-                <HardDriveUpload size={11} />
-                Upload to Drive
-              </Button>
+
+              {#if successUpload?.status === "uploading"}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  class="gap-1.5"
+                  onclick={() => gdrive.cancelUpload(successUpload!.uploadId)}
+                >
+                  <X size={11} />
+                  Cancel upload
+                </Button>
+              {:else if successUpload?.status === "complete" && successUpload.webViewLink}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  class="gap-1.5"
+                  onclick={() => copyDriveLink(successUpload!.webViewLink!)}
+                >
+                  <Copy size={11} />
+                  Copy link
+                </Button>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  class="gap-1.5"
+                  onclick={() => openDriveLink(successUpload!.webViewLink!)}
+                >
+                  <ExternalLink size={11} />
+                  Open in Drive
+                </Button>
+              {:else}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  class="gap-1.5"
+                  onclick={uploadExportToDrive}
+                >
+                  <HardDriveUpload size={11} />
+                  {successUpload?.status === "error" ||
+                  successUpload?.status === "cancelled"
+                    ? "Retry upload"
+                    : "Upload to Drive"}
+                </Button>
+              {/if}
+
               <Button
                 variant="default"
                 size="xs"
