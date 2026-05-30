@@ -768,6 +768,10 @@ export function createEditorStore() {
 	// when a fresh render state is loaded from disk.
 	let isDirty = $state(false);
 	let lastSavedAt = $state<number | null>(null);
+	// Frozen snapshot of the last on-disk state. Used by `revertToSaved` to
+	// blow away every unsaved edit at once without walking the undo stack.
+	// Captured whenever the project is loaded from disk or successfully saved.
+	let savedSnapshot = $state<string | null>(null);
 
 	// Timeline zoom
 	let timelineZoom = $state(1); // 1x = fit to width
@@ -833,6 +837,18 @@ export function createEditorStore() {
 	function markSaved(savedAtUnixMs: number) {
 		isDirty = false;
 		lastSavedAt = savedAtUnixMs;
+		savedSnapshot = getSettingsSnapshot();
+	}
+
+	function revertToSaved() {
+		if (!savedSnapshot) return;
+		// Push the current state onto the undo stack so the revert itself
+		// is undoable — a user who reverts by mistake can Ctrl+Z their way
+		// back to the work they discarded.
+		undoStack = [...undoStack, getSettingsSnapshot()].slice(-MAX_UNDO_HISTORY);
+		redoStack = [];
+		applySnapshot(savedSnapshot);
+		isDirty = false;
 	}
 
 	function undo() {
@@ -1507,6 +1523,8 @@ export function createEditorStore() {
 		annotationsGloballyHidden = false;
 		// A freshly loaded document matches on-disk state — no unsaved edits.
 		isDirty = false;
+		// Anchor `revertToSaved` to the just-loaded state.
+		savedSnapshot = getSettingsSnapshot();
 	}
 
 	return {
@@ -1670,6 +1688,10 @@ export function createEditorStore() {
 
 		get canUndo() { return undoStack.length > 0; },
 		get canRedo() { return redoStack.length > 0; },
+		// Revert is only meaningful once we have a saved baseline AND the
+		// user has diverged from it. Without `isDirty` the button would be
+		// a no-op that still consumed an undo slot.
+		get canRevert() { return isDirty && savedSnapshot !== null; },
 
 		get isDirty() { return isDirty; },
 		get lastSavedAt() { return lastSavedAt; },
@@ -1680,6 +1702,7 @@ export function createEditorStore() {
 		pushUndoState,
 		pushUndoStateCoalesced,
 		markSaved,
+		revertToSaved,
 		setBackground,
 		updateCursorSettings,
 		updateAudioSettings,
