@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { PanelSection } from "@recast/ui/panel-section";
   import InspectorHint from "../InspectorHint.svelte";
 
   interface Props {
@@ -13,36 +14,41 @@
     children?: Snippet;
     /** When true, child layout sets its own spacing. Default wraps in a `space-y-2.5` group. */
     flush?: boolean;
+    /** Make the section collapsible with chevron + slide. */
+    collapsible?: boolean;
+    /** Initial open state when `collapsible`. Default true. */
+    defaultOpen?: boolean;
+    /** Controlled open state. */
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
   }
 
-  let { title, hint, action, children, flush = false }: Props = $props();
-  const hasHeader = $derived(!!title || !!action);
+  let {
+    title,
+    hint,
+    action,
+    children,
+    flush = false,
+    collapsible = false,
+    defaultOpen = true,
+    open = $bindable<boolean | undefined>(undefined),
+    onOpenChange,
+  }: Props = $props();
 </script>
 
-<section class="flex flex-col gap-2">
-  {#if hasHeader}
-    <header class="flex min-h-5 items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-1.5">
-        {#if title}
-          <h3
-            class="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
-          >
-            {title}
-          </h3>
-        {/if}
-        {#if hint}
-          <InspectorHint content={hint} />
-        {/if}
-      </div>
-      {#if action}{@render action()}{/if}
-    </header>
-  {/if}
-
-  {#if children}
-    {#if flush}
-      {@render children()}
-    {:else}
-      <div class="space-y-2.5">{@render children()}</div>
+<PanelSection
+  {title}
+  {action}
+  {flush}
+  {collapsible}
+  {defaultOpen}
+  bind:open
+  {onOpenChange}
+>
+  {#snippet hintSlot()}
+    {#if hint}
+      <InspectorHint content={hint} />
     {/if}
-  {/if}
-</section>
+  {/snippet}
+  {#if children}{@render children()}{/if}
+</PanelSection>

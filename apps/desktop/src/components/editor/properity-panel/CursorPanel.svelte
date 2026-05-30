@@ -8,7 +8,6 @@
   } from "$lib/stores/editor-store.svelte";
   import {
     Activity,
-    Eye,
     EyeOff,
     GitGraph,
     MousePointer,
@@ -18,6 +17,7 @@
     Wind,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { cn } from "@recast/ui/utils";
   import { cubicOut } from "svelte/easing";
   import { fade, fly, scale } from "svelte/transition";
@@ -65,25 +65,15 @@
     <span class="text-[11px] text-muted-foreground">
       Tune how the captured pointer feels during playback.
     </span>
-    <Button
-      variant={store.cursorSettings.enabled ? "default_soft" : "outline"}
+    <SegmentedToggle
+      checked={store.cursorSettings.enabled}
+      offLabel="Hidden"
+      onLabel="Visible"
       size="xs"
-      class="gap-1.5"
-      onclick={() =>
-        updateCursorSettings(
-          { enabled: !store.cursorSettings.enabled },
-          true,
-        )}
-      aria-pressed={store.cursorSettings.enabled}
-    >
-      {#if store.cursorSettings.enabled}
-        <Eye size={11} />
-        Visible
-      {:else}
-        <EyeOff size={11} />
-        Hidden
-      {/if}
-    </Button>
+      aria-label="Cursor visibility"
+      onCheckedChange={(next) =>
+        updateCursorSettings({ enabled: next }, true)}
+    />
   </div>
 
   {#if store.cursorSettings.enabled}
@@ -187,6 +177,7 @@
     <PanelSection
       title="Animation"
       hint="Cinematic touches applied at export. Bounce reacts to clicks, sway adds subtle life at rest, motion blur trails the cursor during fast movement."
+      collapsible
     >
       {#snippet action()}
         {#if store.cursorSettings.clickBounce !== 0 || store.cursorSettings.sway !== 0 || store.cursorSettings.motionBlur !== 0 || store.cursorSettings.bounceSpeedMs !== 220}
@@ -303,6 +294,7 @@
       title="Smoothing"
       hint="Gaussian-window smoothing over the captured mouse path. The click-snap option anchors the smoothed curve to the exact press position inside the snap window so buttons still get hit cleanly."
       flush
+      collapsible
     >
       {#snippet action()}
         <Button
@@ -390,20 +382,13 @@
               content="Around every mouse-down, pin the smoothed curve to the exact click x/y inside the snap window. Prevents smoothing from rounding the corner off a press target."
             />
           </div>
-          <Button
-            variant={store.cursorSettings.snapToClicks
-              ? "default_soft"
-              : "outline"}
+          <SegmentedToggle
+            checked={store.cursorSettings.snapToClicks}
             size="xs"
-            aria-pressed={store.cursorSettings.snapToClicks}
-            onclick={() =>
-              updateCursorSettings(
-                { snapToClicks: !store.cursorSettings.snapToClicks },
-                true,
-              )}
-          >
-            {store.cursorSettings.snapToClicks ? "On" : "Off"}
-          </Button>
+            aria-label="Snap to clicks"
+            onCheckedChange={(next) =>
+              updateCursorSettings({ snapToClicks: next }, true)}
+          />
         </div>
 
         {#if store.cursorSettings.snapToClicks}
@@ -432,21 +417,17 @@
       title="Motion easing"
       hint="Reshape how the cursor interpolates between captured samples. Default (linear) preserves the raw trajectory. Ease-out curves decelerate into rest for a more deliberate feel."
       flush
+      collapsible
+      defaultOpen={!!store.cursorMotionEasing}
     >
       {#snippet action()}
-        <Button
-          variant={store.cursorMotionEasing ? "default_soft" : "outline"}
+        <SegmentedToggle
+          checked={!!store.cursorMotionEasing}
           size="xs"
-          class="gap-1.5"
-          aria-pressed={!!store.cursorMotionEasing}
-          onclick={() =>
-            (store.cursorMotionEasing = store.cursorMotionEasing
-              ? null
-              : { ...EASE })}
-        >
-          <Waves size={11} />
-          {store.cursorMotionEasing ? "On" : "Off"}
-        </Button>
+          aria-label="Motion easing"
+          onCheckedChange={(next) =>
+            (store.cursorMotionEasing = next ? { ...EASE } : null)}
+        />
       {/snippet}
       {#if store.cursorMotionEasing}
         <BezierEditor
@@ -462,24 +443,17 @@
       title="Click highlight"
       hint="Useful for tutorials and product demos where click targets should be obvious."
       flush
+      collapsible
+      defaultOpen={store.cursorSettings.highlightClicks}
     >
       {#snippet action()}
-        <Button
-          variant={store.cursorSettings.highlightClicks
-            ? "default_soft"
-            : "outline"}
+        <SegmentedToggle
+          checked={store.cursorSettings.highlightClicks}
           size="xs"
-          class="gap-1.5"
-          onclick={() =>
-            updateCursorSettings(
-              { highlightClicks: !store.cursorSettings.highlightClicks },
-              true,
-            )}
-          aria-pressed={store.cursorSettings.highlightClicks}
-        >
-          <Activity size={11} />
-          {store.cursorSettings.highlightClicks ? "On" : "Off"}
-        </Button>
+          aria-label="Click highlight"
+          onCheckedChange={(next) =>
+            updateCursorSettings({ highlightClicks: next }, true)}
+        />
       {/snippet}
 
       {#if store.cursorSettings.highlightClicks}
@@ -532,22 +506,17 @@
       title="Idle"
       hint="Hide the cursor after inactivity for cleaner sections without interaction."
       flush
+      collapsible
+      defaultOpen={store.cursorSettings.hideWhenIdle}
     >
       {#snippet action()}
-        <Button
-          variant={store.cursorSettings.hideWhenIdle
-            ? "default_soft"
-            : "outline"}
+        <SegmentedToggle
+          checked={store.cursorSettings.hideWhenIdle}
           size="xs"
-          onclick={() =>
-            updateCursorSettings(
-              { hideWhenIdle: !store.cursorSettings.hideWhenIdle },
-              true,
-            )}
-          aria-pressed={store.cursorSettings.hideWhenIdle}
-        >
-          {store.cursorSettings.hideWhenIdle ? "On" : "Off"}
-        </Button>
+          aria-label="Hide cursor when idle"
+          onCheckedChange={(next) =>
+            updateCursorSettings({ hideWhenIdle: next }, true)}
+        />
       {/snippet}
       {#if store.cursorSettings.hideWhenIdle}
         <SliderControl

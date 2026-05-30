@@ -4,6 +4,7 @@
     ArrowLeft,
     LoaderCircle,
     Redo2,
+    RotateCcw,
     Save,
     Sparkles,
     Undo2,
@@ -14,6 +15,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { Separator } from "@recast/ui/separator";
   import * as Tooltip from "@recast/ui/tooltip";
+  import ConfirmDialog from "../recast/ConfirmDialog.svelte";
   import PresetPicker, { PRESETS, type Preset } from "./PresetPicker.svelte";
 
   interface Props {
@@ -32,6 +34,7 @@
     isSaving = false,
   }: Props = $props();
   let showPresetsPicker = $state(false);
+  let showRevertConfirm = $state(false);
 
   function applyPreset(preset: Preset) {
     store.pushUndoState();
@@ -239,8 +242,29 @@
     </div>
   </div>
 
-  <!-- Right: save + export -->
+  <!-- Right: revert + save + export -->
   <div class="ml-auto flex items-center gap-1">
+    {#if store.canRevert}
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-[11px] text-muted-foreground hover:text-destructive"
+            onclick={() => (showRevertConfirm = true)}
+            disabled={isSaving}
+            aria-label="Revert unsaved changes"
+          >
+            <RotateCcw size={12} />
+            Revert
+          </Button>
+        </Tooltip.Trigger>
+        <Tooltip.Content>
+          Discard unsaved changes and restore the last saved state
+        </Tooltip.Content>
+      </Tooltip.Root>
+    {/if}
+
     <Tooltip.Root>
       <Tooltip.Trigger>
         <Button
@@ -292,6 +316,17 @@
   open={showPresetsPicker}
   onOpenChange={(v) => (showPresetsPicker = v)}
   onapply={applyPreset}
+/>
+
+<ConfirmDialog
+  bind:open={showRevertConfirm}
+  onOpenChange={(v) => (showRevertConfirm = v)}
+  title="Revert unsaved changes?"
+  description="This restores every setting to the state of the last save. The revert is itself undoable — press Ctrl+Z if you change your mind."
+  confirmLabel="Revert"
+  cancelLabel="Keep editing"
+  variant="destructive"
+  onConfirm={() => store.revertToSaved()}
 />
 
 <svelte:window

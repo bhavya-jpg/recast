@@ -17,7 +17,6 @@
     Move,
     Palette,
     Sparkles,
-    Square,
     SquareRoundCorner,
   } from "@lucide/svelte";
   import {
@@ -26,6 +25,7 @@
   } from "$lib/annotations/recent-colors";
   import { Button } from "@recast/ui/button";
   import { ColorField } from "@recast/ui/color-field";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { cn } from "@recast/ui/utils";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { Image } from "@unpic/svelte";
@@ -64,6 +64,16 @@
   function rememberColor(color: string) {
     recents = pushRecentColor(color);
   }
+
+  // Mode tabs (Wallpaper/Color/Gradient/Image) drive which preset list is
+  // shown — they do NOT mutate the actual background. The store is only
+  // updated when the user explicitly picks a preset. This keeps a user's
+  // applied background intact while they browse other modes, and prevents
+  // a tab-switch from silently replacing it with the first preset.
+  let displayedMode = $state<BackgroundType>(store.backgroundType);
+  $effect(() => {
+    displayedMode = store.backgroundType;
+  });
 
   let blurValue = $state(0);
   let paddingValue = $state(0);
@@ -186,11 +196,13 @@
     >
       {#each backgroundModes as mode}
         {@const Icon = mode.icon}
-        {@const isActive = store.backgroundType === mode.type}
+        {@const isActive = displayedMode === mode.type}
         <Button
           variant="raw"
           size="xs"
-          onclick={() => applyBackground(mode.type)}
+          onclick={() => {
+            displayedMode = mode.type;
+          }}
           aria-pressed={isActive}
           title={mode.label}
           class={cn(
@@ -207,7 +219,7 @@
     </div>
   </PanelSection>
 
-  {#if store.backgroundType === "wallpaper"}
+  {#if displayedMode === "wallpaper"}
     <PanelSection title="Wallpapers" flush>
       {#snippet action()}
         <span class="font-mono text-[10px] tabular-nums text-muted-foreground">
@@ -242,7 +254,7 @@
         {/each}
       </div>
     </PanelSection>
-  {:else if store.backgroundType === "color"}
+  {:else if displayedMode === "color"}
     <PanelSection
       title="Color"
       hint="Solid backgrounds keep attention on the recording itself."
@@ -283,7 +295,7 @@
         />
       </div>
     </PanelSection>
-  {:else if store.backgroundType === "gradient"}
+  {:else if displayedMode === "gradient"}
     <PanelSection
       title="Gradients"
       hint="Preset gradient backdrops render live in the preview."
@@ -422,21 +434,19 @@
     title="Drop shadow"
     hint="Adds depth by casting a soft shadow under the recording onto the canvas background."
     flush
+    collapsible
+    defaultOpen={store.shadow.enabled}
   >
     {#snippet action()}
-      <Button
-        variant={store.shadow.enabled ? "default_soft" : "outline"}
+      <SegmentedToggle
+        checked={store.shadow.enabled}
         size="xs"
-        class="gap-1.5"
-        onclick={() => {
+        aria-label="Drop shadow"
+        onCheckedChange={(next) => {
           store.pushUndoState();
-          store.updateShadow({ enabled: !store.shadow.enabled });
+          store.updateShadow({ enabled: next });
         }}
-        aria-pressed={store.shadow.enabled}
-      >
-        <Square size={11} />
-        {store.shadow.enabled ? "On" : "Off"}
-      </Button>
+      />
     {/snippet}
 
     {#if store.shadow.enabled}
