@@ -39,11 +39,11 @@
   import {
     ArrowLeft,
     CheckCircle2,
-    Copy,
     ExternalLink,
     FlaskConical,
     FolderOpen,
     HardDriveUpload,
+    Link2,
     RefreshCw,
     Share2,
     TriangleAlert,
@@ -1523,9 +1523,10 @@
 
 {#snippet success()}
   <div class="flex flex-col" style="width: 500px;">
-    <header
-      class="flex items-start gap-3 border-b border-border/40 px-5 py-4"
-    >
+    <!-- Header: success badge + title + file path as the secondary line.
+         Format/quality is implicit from the export the user just kicked off
+         and drops here in favor of the path the user actually needs to see. -->
+    <header class="flex items-start gap-3 px-5 py-4">
       <div
         class="flex size-10 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success shadow-(--shadow-craft-inset)"
       >
@@ -1538,79 +1539,113 @@
         >
           Export complete
         </h3>
-        <p class="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {store.exportFormat.toUpperCase()} · {store.exportQuality.toUpperCase()}
-        </p>
-      </div>
-    </header>
-
-    <div class="flex flex-col gap-3 px-5 py-4">
-      <div
-        class="flex items-center gap-2 rounded-lg border border-border/40 bg-muted/15 px-3 py-2"
-      >
-        <FolderOpen class="size-3.5 shrink-0 text-muted-foreground" />
         {#if exportResult?.kind === "success"}
           <p
-            class="min-w-0 flex-1 truncate font-mono text-[10.5px] text-foreground"
+            class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground"
             title={exportResult.path}
           >
             {exportResult.path}
           </p>
         {/if}
       </div>
+    </header>
 
-      {#if successUpload}
+    {#if successUpload}
+      <!-- Drive row: single horizontal row with leading status icon, label,
+           inline progress (when uploading), and trailing inline action
+           ("Copy link" when complete, "Cancel" when uploading, "Retry"
+           after error/cancel). Sits on a faintly tinted strip so it reads
+           as the export's outbound destination, not a generic status card. -->
+      <div
+        class="flex items-center gap-3 border-t border-border/40 bg-muted/15 px-5 py-3"
+        aria-live="polite"
+      >
         <div
-          class="rounded-xl border border-border/50 bg-card/60 px-3 py-2.5 shadow-(--shadow-craft-inset) backdrop-blur"
-          aria-live="polite"
+          class="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-card/70 text-muted-foreground shadow-(--shadow-craft-inset)"
         >
-          <div class="flex items-center gap-2">
+          {#if successUpload.status === "uploading"}
+            <RefreshCw class="size-3.5 animate-spin text-primary" />
+          {:else if successUpload.status === "complete"}
+            <HardDriveUpload class="size-3.5 text-success" />
+          {:else if successUpload.status === "cancelled"}
+            <X class="size-3.5" />
+          {:else}
+            <TriangleAlert class="size-3.5 text-destructive" />
+          {/if}
+        </div>
+
+        <div class="min-w-0 flex-1">
+          <p class="text-[12px] font-medium text-foreground">
             {#if successUpload.status === "uploading"}
-              <RefreshCw class="size-3.5 shrink-0 animate-spin text-primary" />
-              <span class="text-[11.5px] font-medium text-foreground">
-                Uploading to Drive
-              </span>
+              Uploading to Drive
+            {:else if successUpload.status === "complete"}
+              Uploaded to Drive
+            {:else if successUpload.status === "cancelled"}
+              Upload cancelled
+            {:else}
+              Upload failed
+            {/if}
+          </p>
+          {#if successUpload.status === "uploading"}
+            <div class="mt-1 flex items-center gap-2">
+              <div class="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-full rounded-full bg-primary transition-[width] duration-200"
+                  style="width: {successUploadPct}%"
+                ></div>
+              </div>
               <span
-                class="ml-auto font-mono text-[10.5px] tabular-nums text-muted-foreground"
+                class="font-mono text-[10px] tabular-nums text-muted-foreground"
               >
                 {successUploadPct}%
               </span>
-            {:else if successUpload.status === "complete"}
-              <CheckCircle2 class="size-3.5 shrink-0 text-success" />
-              <span class="text-[11.5px] font-medium text-foreground">
-                Uploaded to Drive
-              </span>
-            {:else if successUpload.status === "cancelled"}
-              <X class="size-3.5 shrink-0 text-muted-foreground" />
-              <span class="text-[11.5px] font-medium text-foreground">
-                Upload cancelled
-              </span>
-            {:else}
-              <TriangleAlert class="size-3.5 shrink-0 text-destructive" />
-              <span class="text-[11.5px] font-medium text-foreground">
-                Upload failed
-              </span>
-            {/if}
-          </div>
-
-          {#if successUpload.status === "uploading"}
-            <div class="mt-2 h-1 overflow-hidden rounded-full bg-muted">
-              <div
-                class="h-full rounded-full bg-primary transition-[width] duration-200"
-                style="width: {successUploadPct}%"
-              ></div>
             </div>
           {:else if successUpload.status === "error" && successUpload.error}
             <p
-              class="mt-1.5 text-[10.5px] leading-snug text-muted-foreground"
+              class="truncate text-[10.5px] leading-snug text-muted-foreground"
               title={successUpload.error}
             >
               {successUpload.error}
             </p>
           {/if}
         </div>
-      {/if}
-    </div>
+
+        <!-- Inline trailing action. Mirrors the screenshot: completed
+             uploads expose "Copy link" as a primary-tinted chip right
+             next to the status, no detour through the footer. -->
+        {#if successUpload.status === "uploading"}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-muted-foreground"
+            onclick={() => gdrive.cancelUpload(successUpload!.uploadId)}
+          >
+            <X class="size-3" />
+            Cancel
+          </Button>
+        {:else if successUpload.status === "complete" && successUpload.webViewLink}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-primary hover:text-primary"
+            onclick={() => copyDriveLink(successUpload!.webViewLink!)}
+          >
+            <Link2 class="size-3" />
+            Copy link
+          </Button>
+        {:else}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="gap-1.5 text-muted-foreground"
+            onclick={uploadExportToDrive}
+          >
+            <RefreshCw class="size-3" />
+            Retry
+          </Button>
+        {/if}
+      </div>
+    {/if}
 
     <footer
       class="flex items-center justify-end gap-1.5 border-t border-border/40 bg-muted/30 px-3 py-2.5"
@@ -1632,26 +1667,21 @@
         </Button>
       {/if}
 
-      {#if successUpload?.status === "uploading"}
+      <!-- Footer keeps "Upload to Drive" only when no upload exists yet;
+           after that, the Drive row above owns the upload lifecycle and
+           the footer just complements with "Open in Drive" for completed
+           uploads (paired with the inline "Copy link" chip). -->
+      {#if !successUpload}
         <Button
           variant="outline"
           size="xs"
           class="gap-1.5"
-          onclick={() => gdrive.cancelUpload(successUpload!.uploadId)}
+          onclick={uploadExportToDrive}
         >
-          <X class="size-3" />
-          Cancel upload
+          <HardDriveUpload class="size-3" />
+          Upload to Drive
         </Button>
-      {:else if successUpload?.status === "complete" && successUpload.webViewLink}
-        <Button
-          variant="outline"
-          size="xs"
-          class="gap-1.5"
-          onclick={() => copyDriveLink(successUpload!.webViewLink!)}
-        >
-          <Copy class="size-3" />
-          Copy link
-        </Button>
+      {:else if successUpload.status === "complete" && successUpload.webViewLink}
         <Button
           variant="outline"
           size="xs"
@@ -1660,19 +1690,6 @@
         >
           <ExternalLink class="size-3" />
           Open in Drive
-        </Button>
-      {:else}
-        <Button
-          variant="outline"
-          size="xs"
-          class="gap-1.5"
-          onclick={uploadExportToDrive}
-        >
-          <HardDriveUpload class="size-3" />
-          {successUpload?.status === "error" ||
-          successUpload?.status === "cancelled"
-            ? "Retry upload"
-            : "Upload to Drive"}
         </Button>
       {/if}
 
