@@ -140,6 +140,14 @@
       "svelte": "./src/components/ui/slider-control/index.ts",
       "default": "./src/components/ui/slider-control/index.ts"
     },
+    "./segmented": {
+      "svelte": "./src/components/ui/segmented/index.ts",
+      "default": "./src/components/ui/segmented/index.ts"
+    },
+    "./panel-section": {
+      "svelte": "./src/components/ui/panel-section/index.ts",
+      "default": "./src/components/ui/panel-section/index.ts"
+    },
     "./popover": {
       "svelte": "./src/components/ui/popover/index.ts",
       "default": "./src/components/ui/popover/index.ts"

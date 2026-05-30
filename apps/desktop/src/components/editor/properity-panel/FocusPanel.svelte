@@ -383,7 +383,7 @@
         />
       </PanelSection>
 
-      <PanelSection title="Easing" flush>
+      <PanelSection title="Easing" flush collapsible defaultOpen={false}>
         {#snippet action()}
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}

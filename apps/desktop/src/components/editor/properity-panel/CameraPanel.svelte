@@ -5,13 +5,8 @@
     type CameraPositionPreset,
     type EditorStore,
   } from "$lib/stores/editor-store.svelte";
-  import {
-    Eye,
-    EyeOff,
-    FlipHorizontal,
-    VideoOff,
-  } from "@lucide/svelte";
-  import { Button } from "@recast/ui/button";
+  import { VideoOff } from "@lucide/svelte";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { cn } from "@recast/ui/utils";
   import { SliderControl } from "@recast/ui/slider-control";
   import PanelSection from "./PanelSection.svelte";
@@ -121,26 +116,17 @@
       <span class="text-[11px] text-muted-foreground">
         Composite the camera track onto the screen video.
       </span>
-      <Button
-        variant={store.cameraOverlay.enabled ? "default_soft" : "outline"}
+      <SegmentedToggle
+        checked={store.cameraOverlay.enabled}
+        offLabel="Hidden"
+        onLabel="Visible"
         size="xs"
-        class="gap-1.5"
-        onclick={() => {
+        aria-label="Camera visibility"
+        onCheckedChange={(next) => {
           store.pushUndoState();
-          store.updateCameraOverlay({
-            enabled: !store.cameraOverlay.enabled,
-          });
+          store.updateCameraOverlay({ enabled: next });
         }}
-        aria-pressed={store.cameraOverlay.enabled}
-      >
-        {#if store.cameraOverlay.enabled}
-          <Eye size={11} />
-          Visible
-        {:else}
-          <EyeOff size={11} />
-          Hidden
-        {/if}
-      </Button>
+      />
     </div>
   {/if}
 
@@ -268,21 +254,15 @@
       flush
     >
       {#snippet action()}
-        <Button
-          variant={store.cameraOverlay.mirror ? "default_soft" : "outline"}
+        <SegmentedToggle
+          checked={store.cameraOverlay.mirror}
           size="xs"
-          class="gap-1.5"
-          onclick={() => {
+          aria-label="Mirror camera"
+          onCheckedChange={(next) => {
             store.pushUndoState();
-            store.updateCameraOverlay({
-              mirror: !store.cameraOverlay.mirror,
-            });
+            store.updateCameraOverlay({ mirror: next });
           }}
-          aria-pressed={store.cameraOverlay.mirror}
-        >
-          <FlipHorizontal size={11} />
-          {store.cameraOverlay.mirror ? "On" : "Off"}
-        </Button>
+        />
       {/snippet}
     </PanelSection>
   {/if}

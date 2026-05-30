@@ -10,9 +10,9 @@
     EditorStore,
   } from "$lib/stores/editor-store.svelte";
   import { Sparkles } from "@lucide/svelte";
-  import { Button } from "@recast/ui/button";
   import { ColorPicker } from "@recast/ui/color-picker";
   import * as Popover from "@recast/ui/popover";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { cn } from "@recast/ui/utils";
   import InspectorHint from "../../InspectorHint.svelte";
   import { SliderControl } from "@recast/ui/slider-control";
@@ -284,17 +284,15 @@
         <Sparkles size={10} />
         Glow
       </span>
-      <Button
-        variant={annotation.glow ? "default_soft" : "ghost"}
+      <SegmentedToggle
+        checked={!!annotation.glow}
         size="xs"
-        onclick={() => {
+        aria-label="Glow"
+        onCheckedChange={(next) => {
           store.pushUndoState();
-          if (annotation.glow) setGlow(null);
-          else setGlow({});
+          setGlow(next ? {} : null);
         }}
-      >
-        {annotation.glow ? "On" : "Off"}
-      </Button>
+      />
     </div>
     {#if annotation.glow}
       {@const g = annotation.glow}

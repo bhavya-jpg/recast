@@ -6,7 +6,7 @@
 		label: string;
 		/** Current color as a CSS hex string (#rrggbb or #rrggbbaa). */
 		value: string;
-		/** Fired when the user commits a new color from the popover. */
+		/** Fired when the user commits a new color from the popover or hex edit. */
 		oncommit: (next: string) => void;
 		/** Optional preset palette shown in the popover. */
 		swatches?: string[];
@@ -21,9 +21,12 @@
 		align?: "start" | "center" | "end";
 		class?: string;
 	}
+
+	const HEX_REGEX = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 </script>
 
 <script lang="ts">
+	import { tick } from "svelte";
 	import { ColorPicker } from "@recast/ui/color-picker";
 	import * as Popover from "@recast/ui/popover";
 	import { cn } from "@recast/ui/utils";
@@ -41,68 +44,199 @@
 		class: className,
 	}: ColorFieldProps = $props();
 
-	// Row affordance that matches <SliderControl> in geometry, typography, and
-	// state — same h-10 card, same label/value rhythm, so a panel that mixes
-	// sliders and color rows reads as one form. The swatch + hex on the right
-	// is the "value" half; clicking anywhere on the card opens the full
-	// ColorPicker in a popover so the trigger stays compact.
+	// Row affordance matches <SliderControl> in geometry, typography, and
+	// state. The hex text is its own affordance — hovering it for 800ms
+	// reveals an editable pill (DialKit's hover-to-type pattern). Clicking
+	// the swatch (or any non-hex region) opens the full picker popover.
 
-	// Display the hex in upper case for legibility, but keep the source value
-	// untouched (consumers may store rgba()/named colors).
+	const HOVER_REVEAL_MS = 800;
+
+	let isHexHovered = $state(false);
+	let isHexEditable = $state(false);
+	let showInput = $state(false);
+	let inputValue = $state("");
+	let inputEl: HTMLInputElement | null = $state(null);
+	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
 	const displayHex = $derived(
 		value && value.startsWith("#") ? value.toUpperCase() : value,
 	);
+
+	$effect(() => {
+		if (hoverTimer) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		if (isHexHovered && !showInput && !isHexEditable && !disabled) {
+			hoverTimer = setTimeout(() => {
+				isHexEditable = true;
+			}, HOVER_REVEAL_MS);
+		} else if (!isHexHovered && !showInput) {
+			isHexEditable = false;
+		}
+		return () => {
+			if (hoverTimer) {
+				clearTimeout(hoverTimer);
+				hoverTimer = null;
+			}
+		};
+	});
+
+	$effect(() => {
+		if (showInput) {
+			tick().then(() => {
+				inputEl?.focus();
+				inputEl?.select();
+			});
+		}
+	});
+
+	function startHexEdit() {
+		showInput = true;
+		inputValue = displayHex;
+	}
+
+	function commitHexInput() {
+		const v = inputValue.trim();
+		const withHash = v.startsWith("#") ? v : `#${v}`;
+		if (HEX_REGEX.test(withHash)) {
+			oncommit(withHash);
+		}
+		showInput = false;
+		isHexHovered = false;
+		isHexEditable = false;
+	}
+
+	function handleHexKeydown(e: KeyboardEvent) {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			commitHexInput();
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			showInput = false;
+			isHexHovered = false;
+			isHexEditable = false;
+		}
+	}
 </script>
 
 <Popover.Root>
-	<Popover.Trigger>
-		{#snippet child({ props })}
-			<button
-				type="button"
-				{...props}
-				{disabled}
-				aria-label={`${label} — opens color picker`}
-				class={cn(
-					"group/field relative flex h-10 w-full select-none items-center gap-3 overflow-hidden rounded-md border border-border/40 bg-card/60 px-3 text-left outline-none transition-colors duration-150",
-					"focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-					disabled
-						? "cursor-not-allowed opacity-50"
-						: "cursor-pointer hover:border-border/60 hover:bg-card/80",
-					className,
-				)}
-			>
-				<span class="flex min-w-0 flex-1 items-center gap-1.5">
+	<div
+		class={cn(
+			"group/field relative flex h-10 w-full select-none items-center gap-3 overflow-hidden rounded-md border border-border/40 bg-card/60 px-3 text-left outline-none transition-colors duration-150",
+			"focus-within:ring-2 focus-within:ring-primary/30 focus-within:ring-offset-1 focus-within:ring-offset-background",
+			disabled
+				? "cursor-not-allowed opacity-50"
+				: "hover:border-border/60 hover:bg-card/80",
+			className,
+		)}
+	>
+		<Popover.Trigger>
+			{#snippet child({ props })}
+				<button
+					type="button"
+					{...props}
+					{disabled}
+					aria-label={`${label} — opens color picker`}
+					class={cn(
+						"flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none",
+						disabled ? "cursor-not-allowed" : "cursor-pointer",
+					)}
+				>
 					{#if icon}
-						<span class="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+						<span
+							class="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground"
+						>
 							{@render icon()}
 						</span>
 					{/if}
-					<span class="truncate text-[12px] font-medium text-muted-foreground">
+					<span
+						class="truncate text-[12px] font-medium text-muted-foreground"
+					>
 						{label}
 					</span>
-				</span>
+				</button>
+			{/snippet}
+		</Popover.Trigger>
 
-				<span class="flex shrink-0 items-center gap-2">
-					<!-- Pill swatch. A checker-grid sits underneath so transparent /
-					     alpha-tinted colors read correctly without a confusing solid
-					     background. -->
-					<span
-						class="relative inline-block h-4 w-7 overflow-hidden rounded-md border border-border/60 shadow-[inset_0_0_0_1px_color-mix(in_srgb,_var(--color-foreground)_4%,_transparent)]"
-						aria-hidden="true"
+		<div class="flex shrink-0 items-center gap-2">
+			{#if showInput}
+				<input
+					bind:this={inputEl}
+					type="text"
+					spellcheck="false"
+					autocomplete="off"
+					class="h-6 w-[5.5rem] rounded-sm border border-primary/40 bg-background px-1.5 text-right font-mono text-[12px] font-medium uppercase tabular-nums text-foreground outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
+					value={inputValue}
+					oninput={(e) =>
+						(inputValue = (e.currentTarget as HTMLInputElement).value)}
+					onkeydown={handleHexKeydown}
+					onblur={commitHexInput}
+					onclick={(e) => e.stopPropagation()}
+					onpointerdown={(e) => e.stopPropagation()}
+				/>
+			{:else}
+				<button
+					type="button"
+					{disabled}
+					onmouseenter={() => (isHexHovered = true)}
+					onmouseleave={() => (isHexHovered = false)}
+					onclick={(e) => {
+						if (!isHexEditable || disabled) return;
+						e.stopPropagation();
+						e.preventDefault();
+						startHexEdit();
+					}}
+					onpointerdown={(e) => {
+						if (isHexEditable) e.stopPropagation();
+					}}
+					aria-label={`${label} hex — hover and click to edit`}
+					tabindex={isHexEditable ? 0 : -1}
+					class={cn(
+						"shrink-0 font-mono text-[12px] font-medium tabular-nums text-foreground/85 outline-none transition-colors",
+						isHexEditable &&
+							"rounded-sm bg-foreground/[0.06] px-1 text-foreground cursor-text",
+						!isHexEditable && "cursor-default",
+					)}
+					style:cursor={isHexEditable ? "text" : undefined}
+				>
+					{displayHex}
+				</button>
+			{/if}
+
+			<!-- Swatch — opens the full ColorPicker popover. Checker grid sits
+			     underneath so transparent/alpha colors read correctly. -->
+			<Popover.Trigger>
+				{#snippet child({ props })}
+					<button
+						type="button"
+						{...props}
+						{disabled}
+						aria-label={`${label} swatch — opens color picker`}
+						class={cn(
+							"relative inline-block h-4 w-7 overflow-hidden rounded-md border border-border/60 shadow-[inset_0_0_0_1px_color-mix(in_srgb,_var(--color-foreground)_4%,_transparent)] outline-none transition-transform",
+							"focus-visible:ring-2 focus-visible:ring-primary/30",
+							disabled
+								? "cursor-not-allowed"
+								: "cursor-pointer hover:scale-105 active:scale-95",
+						)}
 					>
 						<span
+							aria-hidden="true"
 							class="absolute inset-0"
 							style="background-image: conic-gradient(color-mix(in srgb, var(--color-foreground) 10%, transparent) 0deg 90deg, transparent 90deg 180deg, color-mix(in srgb, var(--color-foreground) 10%, transparent) 180deg 270deg, transparent 270deg 360deg); background-size: 6px 6px;"
 						></span>
-						<span class="absolute inset-0" style:background={value}></span>
-					</span>
-					<span class="font-mono text-[12px] font-medium tabular-nums text-foreground/85">
-						{displayHex}
-					</span>
-				</span>
-			</button>
-		{/snippet}
-	</Popover.Trigger>
+						<span
+							aria-hidden="true"
+							class="absolute inset-0"
+							style:background={value}
+						></span>
+					</button>
+				{/snippet}
+			</Popover.Trigger>
+		</div>
+	</div>
+
 	<Popover.Content {align} sideOffset={6} class="w-auto p-0">
 		<ColorPicker {value} {swatches} {recents} {allowAlpha} {oncommit} />
 	</Popover.Content>

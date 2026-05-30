@@ -389,7 +389,7 @@
       </PanelSection>
 
       <!-- Fade curves -->
-      <PanelSection title="Fade curves" flush>
+      <PanelSection title="Fade curves" flush collapsible defaultOpen={false}>
         {#snippet action()}
           <Button variant="ghost" size="xs" onclick={resetCurves}>Reset</Button>
         {/snippet}

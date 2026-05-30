@@ -6,11 +6,10 @@
     Mic,
     RotateCcw,
     Speaker,
-    Volume2,
-    VolumeX,
     Waves,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
+  import { SegmentedToggle } from "@recast/ui/segmented";
   import { cn } from "@recast/ui/utils";
   import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
@@ -188,24 +187,17 @@
           <RotateCcw size={11} />
           100%
         </Button>
-        <Button
-          variant={store.audioSettings.muted
-            ? "destructive_soft"
-            : "default_soft"}
+        <SegmentedToggle
+          checked={!store.audioSettings.muted}
+          offLabel="Muted"
+          onLabel="Live"
           size="xs"
-          class="gap-1.5"
-          onclick={toggleMute}
-          aria-pressed={store.audioSettings.muted}
-          title="Toggle mute (M)"
-        >
-          {#if store.audioSettings.muted}
-            <VolumeX size={11} />
-            Muted
-          {:else}
-            <Volume2 size={11} />
-            Live
-          {/if}
-        </Button>
+          aria-label="Mute (M)"
+          onCheckedChange={(next) => {
+            store.pushUndoState();
+            store.updateAudioSettings({ muted: !next });
+          }}
+        />
       </div>
     {/snippet}
 
@@ -286,6 +278,8 @@
     title="Tracks"
     hint="System audio and microphone share the master gain today. Per-track levels land in the next audio pass."
     flush
+    collapsible
+    defaultOpen={false}
   >
     <ul class="flex flex-col gap-1">
       {#each tracks as track, i (track.id)}
@@ -359,6 +353,7 @@
     title="Fades"
     hint="Fades are export-side only — playback stays responsive while you edit."
     flush
+    collapsible
   >
     {#snippet action()}
       <span class="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
