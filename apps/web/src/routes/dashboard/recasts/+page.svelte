@@ -14,6 +14,7 @@
 	import { Button } from "@recast/ui/button";
 	import * as Select from "@recast/ui/select";
 	import { toast } from "@recast/ui/sonner";
+	import { untrack } from "svelte";
 	import { flip } from "svelte/animate";
 	import { cubicOut } from "svelte/easing";
 	import { fly, scale } from "svelte/transition";
@@ -22,20 +23,22 @@
 
 	// Hydrate from the server. Same shape mapping as the home page.
 	$effect(() => {
-		recastsStore.hydrate(
-			data.recasts.map((r) => ({
-				id: r.id,
-				title: r.title,
-				durationSec: r.durationSec,
-				createdAt: r.createdAt,
-				sizeBytes: r.sizeBytes,
-				source: r.source as Recast["source"],
-				provider: r.provider,
-				views: r.views,
-				videoUrl: r.videoUrl,
-				posterUrl: r.posterUrl ?? "",
-			})),
-		);
+		const mapped = data.recasts.map((r) => ({
+			id: r.id,
+			title: r.title,
+			durationSec: r.durationSec,
+			createdAt: r.createdAt,
+			sizeBytes: r.sizeBytes,
+			source: r.source as Recast["source"],
+			provider: r.provider,
+			views: r.views,
+			videoUrl: r.videoUrl,
+			posterUrl: r.posterUrl ?? "",
+		}));
+		// `hydrate` writes (and `persist` reads back) `recastsStore.items`.
+		// Untrack it so the effect depends only on `data.recasts`, not on the
+		// state it mutates — otherwise it re-triggers itself forever.
+		untrack(() => recastsStore.hydrate(mapped));
 	});
 
 	type SortKey = "recent" | "oldest" | "name" | "largest";

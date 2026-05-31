@@ -13,6 +13,7 @@
 	} from "$lib/dashboard/store.svelte";
 	import { ArrowRight, BarChart3, Cloud, Eye, Film, Video } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
+	import { untrack } from "svelte";
 	import { cubicOut } from "svelte/easing";
 	import { fly } from "svelte/transition";
 
@@ -36,7 +37,10 @@
 			videoUrl: r.videoUrl,
 			posterUrl: r.posterUrl ?? "",
 		}));
-		recastsStore.hydrate(mapped);
+		// `hydrate` writes (and `persist` reads back) `recastsStore.items`.
+		// Untrack it so the effect depends only on `data.recasts`, not on the
+		// state it mutates — otherwise it re-triggers itself forever.
+		untrack(() => recastsStore.hydrate(mapped));
 	});
 
 	const firstName = $derived(
