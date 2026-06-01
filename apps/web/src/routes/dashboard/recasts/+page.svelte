@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as api from "$lib/dashboard/api";
+	import ArchivedCard, { type ArchivedRecast } from "$lib/dashboard/components/ArchivedCard.svelte";
 	import FolderRail, { type FolderSelection } from "$lib/dashboard/components/FolderRail.svelte";
 	import PlayerDialog from "$lib/dashboard/components/PlayerDialog.svelte";
 	import RecastCard from "$lib/dashboard/components/RecastCard.svelte";
@@ -15,7 +16,7 @@
 	  type RecordingSource,
 	} from "$lib/dashboard/store.svelte";
 	import { Chip } from "@recast/ui/chip";
-	import { Cloud, Film, FolderOpen, HardDrive, LoaderCircle, Plus, Search, Upload, Video, X } from "@lucide/svelte";
+	import { Archive, Cloud, Film, FolderOpen, HardDrive, Library, LoaderCircle, Plus, Search, Upload, Video, X } from "@lucide/svelte";
 	import { Button } from "@recast/ui/button";
 	import * as Select from "@recast/ui/select";
 	import { toast } from "@recast/ui/sonner";
@@ -52,6 +53,18 @@
 	});
 
 	const workspaceId = $derived(data.workspaceId);
+
+	// Archived recasts live in their own tab. Keep a local copy so a delete can
+	// drop the card optimistically; re-seed whenever the loader returns fresh
+	// data (e.g. after invalidateAll()).
+	let archived = $state<ArchivedRecast[]>([]);
+	$effect(() => {
+		const next = data.archived;
+		untrack(() => (archived = next));
+	});
+
+	type View = "library" | "archived";
+	let view = $state<View>("library");
 
 	type SortKey = "recent" | "oldest" | "name" | "largest";
 
@@ -264,6 +277,18 @@
 		}
 	}
 
+	async function deleteArchived(rec: ArchivedRecast) {
+		const snapshot = archived;
+		archived = archived.filter((a) => a.id !== rec.id);
+		try {
+			await api.deleteRecast(rec.id);
+			toast.success(`“${rec.title}” deleted permanently.`);
+		} catch (e) {
+			archived = snapshot; // restore
+			toast.error((e as Error)?.message ?? "Couldn't delete recast.");
+		}
+	}
+
 	async function createTag() {
 		const name = newTagName.trim();
 		creatingTag = false;
@@ -308,8 +333,34 @@
 	{/each}
 </div>
 
+<!-- View tabs: Library / Archived -->
+<div class="mt-8 flex items-center gap-1 border-b border-border-low/60" in:fly={{ y: 12, duration: 480, delay: 200, easing: cubicOut }}>
+	<button
+		type="button"
+		onclick={() => (view = "library")}
+		class="-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-semibold transition-colors
+			{view === 'library' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+	>
+		<Library class="size-4" />
+		Library
+	</button>
+	<button
+		type="button"
+		onclick={() => (view = "archived")}
+		class="-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-semibold transition-colors
+			{view === 'archived' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}"
+	>
+		<Archive class="size-4" />
+		Archived
+		{#if archived.length > 0}
+			<span class="rounded-full bg-foreground/10 px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">{archived.length}</span>
+		{/if}
+	</button>
+</div>
+
+{#if view === "library"}
 <!-- Library: folder rail + content -->
-<div class="mt-8 flex flex-col gap-6 lg:flex-row" in:fly={{ y: 12, duration: 480, delay: 240, easing: cubicOut }}>
+<div class="mt-6 flex flex-col gap-6 lg:flex-row" in:fly={{ y: 12, duration: 480, delay: 80, easing: cubicOut }}>
 	<FolderRail
 		{workspaceId}
 		selected={selectedFolder}
@@ -468,6 +519,39 @@
 		{/if}
 	</div>
 </div>
+{:else}
+	<!-- Archived tab -->
+	<div class="mt-6" in:fly={{ y: 12, duration: 480, delay: 80, easing: cubicOut }}>
+		{#if archived.length > 0}
+			<p class="mb-5 max-w-2xl text-sm text-muted-foreground">
+				Recasts here lost their cloud file after 14 days without views — only the
+				details remain. Re-share from the Recast desktop app to bring one back, or
+				delete it for good. Each is purged automatically 16 days after archiving.
+			</p>
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+				{#each archived as rec (rec.id)}
+					<div
+						animate:flip={{ duration: 320, easing: cubicOut }}
+						in:scale={{ start: 0.97, duration: 300, easing: cubicOut }}
+						out:scale={{ start: 0.97, duration: 170, easing: cubicOut }}
+					>
+						<ArchivedCard recast={rec} ondelete={() => deleteArchived(rec)} />
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-border-low/70 py-20 text-center">
+				<span class="glass-chip grid size-12 place-items-center rounded-xl text-muted-foreground">
+					<Archive class="size-5" />
+				</span>
+				<h3 class="mt-4 text-sm font-semibold text-foreground">Nothing archived</h3>
+				<p class="mt-1 max-w-xs text-xs text-muted-foreground">
+					Unwatched recasts on the Free plan are archived after 14 days. Anything parked here will show up so you can restore or remove it.
+				</p>
+			</div>
+		{/if}
+	</div>
+{/if}
 
 {#if playing}
 	<PlayerDialog
