@@ -188,6 +188,22 @@ export const serverEnvSchema = z
 		// half-filled R2 block (typical when copying from .env.example)
 		// still produces a useful error, while having stray vars from a
 		// provider you switched away from doesn't.
+		// Azure accepts either a bare account name + standalone key, OR a full
+		// connection string pasted into AZURE_STORAGE_ACCOUNT (which carries its
+		// own AccountKey=). Detect the connection-string form with the same regex
+		// `resolveAzureCredentials()` / `isStorageConfigured()` use, and only
+		// require the standalone AZURE_STORAGE_KEY in the bare-name case.
+		const azureIsConnString = /(^|;)\s*AccountName=/i.test(
+			env.AZURE_STORAGE_ACCOUNT ?? "",
+		);
+		const azureVars: (readonly [string, unknown])[] = [
+			["AZURE_STORAGE_ACCOUNT", env.AZURE_STORAGE_ACCOUNT],
+			...(azureIsConnString
+				? []
+				: ([["AZURE_STORAGE_KEY", env.AZURE_STORAGE_KEY]] as const)),
+			["AZURE_BLOB_CONTAINER", env.AZURE_BLOB_CONTAINER],
+		];
+
 		const providerVarSpecs = {
 			r2: {
 				vars: [
@@ -213,11 +229,7 @@ export const serverEnvSchema = z
 				] as const,
 			},
 			azure: {
-				vars: [
-					["AZURE_STORAGE_ACCOUNT", env.AZURE_STORAGE_ACCOUNT],
-					["AZURE_STORAGE_KEY", env.AZURE_STORAGE_KEY],
-					["AZURE_BLOB_CONTAINER", env.AZURE_BLOB_CONTAINER],
-				] as const,
+				vars: azureVars,
 			},
 			gcs: {
 				vars: [

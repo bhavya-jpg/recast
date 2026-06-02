@@ -6,6 +6,7 @@
  * non-component code (panel page, IPC layer, etc.).
  */
 
+import { safeStorage } from "@recast/ui/persisted-state";
 import type { AudioDeviceInfo } from "$lib/ipc";
 import type { BrowserCamera } from "$lib/camera/browser-devices";
 import { findCamera } from "$lib/camera/browser-devices";
@@ -25,6 +26,15 @@ export interface RecordingProfile {
 	cameraLabel: string | null;
 	/** Browser MediaDevices id — what the camera-preview window consumes. */
 	cameraDeviceId: string | null;
+	/**
+	 * Per-profile countdown override (seconds) before capture starts. `null`
+	 * or absent means "inherit the global Settings → Recording countdown";
+	 * `0` explicitly disables the countdown for this profile. Lets a "quick
+	 * capture" profile start instantly while a "presentation" profile waits.
+	 * Not part of the capability fingerprint (`capSig`) — it's a preference,
+	 * not a capability, so two profiles can't differ by countdown alone.
+	 */
+	countdown?: number | null;
 	isDefault: boolean;
 }
 
@@ -242,20 +252,9 @@ function isV2(p: unknown): p is RecordingProfile {
  * unparseable, or every entry was unrecognizable. Never throws.
  */
 export function loadProfiles(): RecordingProfile[] {
-	let raw: string | null = null;
-	try {
-		raw = localStorage.getItem(PROFILES_STORAGE_KEY);
-	} catch {
-		return seedProfiles();
-	}
-	if (!raw) return seedProfiles();
-
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return seedProfiles();
-	}
+	// `safeStorage` returns [] for missing key / no-window / malformed JSON /
+	// non-array data — every empty-ish case funnels into the seed below.
+	const parsed = safeStorage.get<unknown[]>(PROFILES_STORAGE_KEY, []);
 	if (!Array.isArray(parsed) || parsed.length === 0) return seedProfiles();
 
 	const migrated: RecordingProfile[] = [];
@@ -283,33 +282,18 @@ export function loadProfiles(): RecordingProfile[] {
 
 /** Persist profiles to localStorage. Silently no-ops if storage is unavailable. */
 export function persistProfiles(list: RecordingProfile[]): void {
-	try {
-		localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(list));
-	} catch {
-		/* unavailable — silently degrade */
-	}
+	safeStorage.set(PROFILES_STORAGE_KEY, list);
 }
 
-/** Read the on/off flag for the whole profile system. Defaults to enabled. */
+/** Read the on/off flag for the whole profile system. Defaults to enabled.
+ *  The `true` fallback drives the boolean serializer, which reads the existing
+ *  raw "true"/"false" values and returns true when the key is unset. */
 export function loadProfilesEnabled(): boolean {
-	try {
-		const raw = localStorage.getItem(PROFILES_ENABLED_STORAGE_KEY);
-		if (raw === null) return true;
-		return raw === "true";
-	} catch {
-		return true;
-	}
+	return safeStorage.get<boolean>(PROFILES_ENABLED_STORAGE_KEY, true);
 }
 
 export function persistProfilesEnabled(enabled: boolean): void {
-	try {
-		localStorage.setItem(
-			PROFILES_ENABLED_STORAGE_KEY,
-			enabled ? "true" : "false",
-		);
-	} catch {
-		/* unavailable — silently degrade */
-	}
+	safeStorage.set(PROFILES_ENABLED_STORAGE_KEY, enabled);
 }
 
 /** Pick the user's default profile, or the first one if no default flag is

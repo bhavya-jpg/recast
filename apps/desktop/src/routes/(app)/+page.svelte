@@ -29,6 +29,7 @@
   import { Kbd } from "@recast/ui/kbd";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
+  import { safeStorage } from "@recast/ui/persisted-state";
   import { listen } from "@tauri-apps/api/event";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount } from "svelte";
@@ -45,11 +46,10 @@
 
   onMount(() => {
     fetchAll();
-    const stored = localStorage.getItem("recast-editor-window") as
-      | "navigate"
-      | "new-window"
-      | null;
-    if (stored) editorWindow = stored;
+    editorWindow = safeStorage.get<"navigate" | "new-window">(
+      "recast-editor-window",
+      editorWindow,
+    );
     const unlisten = listen("refresh-recordings", () => fetchAll());
     const tick = window.setInterval(() => (now = Date.now()), 60_000);
     return () => {

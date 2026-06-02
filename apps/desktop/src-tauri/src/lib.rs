@@ -14,6 +14,7 @@ mod render;
 mod silence;
 mod telemetry;
 mod tray;
+mod window_aspect;
 
 use commands::system::load_config;
 use commands::types::AppState;
@@ -122,6 +123,11 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let config = load_config(handle);
+
+            // Seed the self-host cloud-endpoint override from persisted config
+            // so the no-arg `cloud_api_url()` resolver reflects the user's
+            // saved choice from the very first auth/sync request onward.
+            commands::auth::init_cloud_api_override(config.cloud_api_url.clone());
 
             // Cold-start file-association path: stash any `.recast` arg the
             // OS handed us so the main window can drain it on mount via
@@ -242,6 +248,7 @@ pub fn run() {
             commands::validate_camera_source,
             commands::update_camera_preview_state,
             commands::exclude_window_from_capture,
+            commands::set_window_aspect_ratio,
             commands::autosave_project,
             commands::save_project_edits,
             commands::clear_autosave,
@@ -253,10 +260,13 @@ pub fn run() {
             commands::get_cached_asset_path,
             commands::hydrate_cached_assets,
             commands::diagnose_ffmpeg,
+            commands::probe_video_encoders,
             commands::auth_start,
             commands::auth_status,
             commands::auth_sign_out,
             commands::auth_cancel,
+            commands::get_cloud_api_config,
+            commands::set_cloud_api_url,
             commands::get_close_to_tray,
             commands::set_close_to_tray,
             commands::set_telemetry_consent,

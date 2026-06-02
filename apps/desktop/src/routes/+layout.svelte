@@ -92,6 +92,7 @@
   import { getTauriTheme, isTauriApp } from "$lib/runtime/tauri";
   import { Toaster, toast } from "@recast/ui/sonner";
   import { ModeWatcher, setMode } from "@recast/ui/theme";
+  import { safeStorage } from "@recast/ui/persisted-state";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { onMount, tick } from "svelte";
@@ -278,7 +279,9 @@
 
     if (await isTauriApp()) {
       const theme = await getTauriTheme();
-      const stored = localStorage.getItem("mode-watcher-mode");
+      // Read-only — mode-watcher owns this key; we just defer to the OS theme
+      // when the user hasn't explicitly picked light/dark.
+      const stored = safeStorage.get<string>("mode-watcher-mode", "");
       if (theme && (!stored || stored === "system")) {
         setMode(theme);
       }

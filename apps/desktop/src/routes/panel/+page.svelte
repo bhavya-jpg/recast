@@ -50,12 +50,16 @@
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
+  import { recordingCountdown } from "$lib/stores/recording-countdown.svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
+  import { Tween } from "svelte/motion";
+  import { cubicOut } from "svelte/easing";
+  import { fade, scale } from "svelte/transition";
 
   // The panel window is too small to host its own Sonner Toaster; the
   // main window's layout listens for `ui:toast` events and renders
@@ -88,6 +92,85 @@
   let isRecording = $state(false);
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
+
+  // Countdown-before-recording. The global value comes from the shared
+  // `recordingCountdown` store (kept in sync with the Settings window for free);
+  // `profileCountdownOverride` is set when a profile with its own countdown is
+  // applied (null = inherit). The effective `countdownSeconds` prefers the
+  // profile override. `countdownValue` is the live tick — non-null only while
+  // counting down, driving the transient "countdown" panel phase between the
+  // Record click and real capture start.
+  let profileCountdownOverride = $state<number | null>(null);
+  const countdownSeconds = $derived(
+    profileCountdownOverride ?? recordingCountdown.value,
+  );
+  let countdownValue = $state<number | null>(null);
+  let countdownInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Panel sizing. The bar's width is driven by a Svelte `Tween` that follows
+  // the *measured* natural width of its content (the same morph technique as
+  // ExportFlowDialog) — buttery, rAF-driven, and consistent with the rest of
+  // the app's motion. The content declares its own size via `w-fit`; the bar
+  // just follows.
+  //
+  // Crucially, the Tauri window is left at its fixed launch size (520×72, sized
+  // in ipc.ts to hug the full idle bar with room for the drop shadow) and is
+  // NOT resized per phase. A centered, always-on-top window can't be resized
+  // and repositioned in a single atomic frame, so snapping it mid-morph made
+  // the bar visibly drift sideways. Instead the bar just morphs *centered
+  // inside the fixed window* — the transparent margins on either side double as
+  // a drag region. This mirrors ExportFlowDialog, which morphs a DOM element
+  // within a fixed viewport and never touches the window.
+  const BAR_W_IDLE = 488;
+
+  let barContentEl = $state<HTMLElement | null>(null);
+  let measuredBarW = $state(BAR_W_IDLE);
+  const barWidth = new Tween(BAR_W_IDLE, { duration: 340, easing: cubicOut });
+  // Snap the very first measurement instead of animating from the seed value.
+  let barFirstMeasure = true;
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+  // Watch the content's natural width and tween the bar to match. Uses the
+  // border box (includes the content's own padding) so the bar wraps it
+  // exactly, and rounds to whole px so sub-pixel jitter can't retrigger.
+  $effect(() => {
+    if (!barContentEl) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(
+        entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width,
+      );
+      if (w > 0) measuredBarW = w;
+    });
+    ro.observe(barContentEl);
+    return () => ro.disconnect();
+  });
+
+  $effect(() => {
+    if (measuredBarW <= 0) return;
+
+    if (barFirstMeasure) {
+      // First paint: size the bar to the content with no animation.
+      barWidth.set(measuredBarW, { duration: 0 });
+      barFirstMeasure = false;
+      return;
+    }
+
+    // Tween the bar to the new measured width (instant under reduced motion).
+    // The window never moves — the bar morphs centered within it.
+    if (prefersReducedMotion) barWidth.set(measuredBarW, { duration: 0 });
+    else barWidth.target = measuredBarW;
+  });
+
+  // Three visual phases. `idle` = full controls; `countdown` = big number +
+  // cancel; `recording` = collapsed transport. Derived so the markup can
+  // switch on a single value.
+  const phase = $derived<"idle" | "countdown" | "recording">(
+    isRecording ? "recording" : countdownValue !== null ? "countdown" : "idle",
+  );
 
   // Mirror the recording flag to the system tray so its "Start/Stop
   // Recording" label and any tray-driven UX stays accurate. Best-effort:
@@ -320,6 +403,7 @@
     return () => {
       window.clearInterval(timer);
       if (profileFlashTimer) clearTimeout(profileFlashTimer);
+      clearCountdown();
       unlistenSource.then((fn) => fn());
       unlistenDevice.then((fn) => fn());
       unlistenProfile.then((fn) => fn());
@@ -423,6 +507,10 @@
       cameraWarning = null;
     }
 
+    // Profile countdown override — null/absent falls back to the global
+    // setting via the `countdownSeconds` derived.
+    profileCountdownOverride = profile.countdown ?? null;
+
     activeProfileId = profile.id;
   }
 
@@ -440,6 +528,14 @@
   }
 
   function handleGlobalShortcut(e: KeyboardEvent) {
+    // Esc aborts an in-progress countdown.
+    if (countdownValue !== null) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelCountdown();
+      }
+      return;
+    }
     if (isRecording) return;
     const meta = e.metaKey || e.ctrlKey;
     if (!meta || e.shiftKey || e.altKey) return;
@@ -574,71 +670,120 @@
     }
   }
 
+  function clearCountdown() {
+    if (countdownInterval) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+    }
+    countdownValue = null;
+  }
+
+  function cancelCountdown() {
+    clearCountdown();
+  }
+
+  /**
+   * Start path for the Record button. With a countdown configured, tick it
+   * down in the panel first (cancelable via Esc or the Cancel button), then
+   * fire the real capture. With countdown off, start immediately.
+   */
+  function beginRecording() {
+    if (!selectedSource || isRecording || countdownValue !== null) return;
+    if (countdownSeconds <= 0) {
+      void startActualRecording();
+      return;
+    }
+    countdownValue = countdownSeconds;
+    countdownInterval = setInterval(() => {
+      if (countdownValue === null) return;
+      countdownValue -= 1;
+      if (countdownValue <= 0) {
+        clearCountdown();
+        void startActualRecording();
+      }
+    }, 1000);
+  }
+
   async function toggleRecording() {
-    if (isRecording) {
-      try {
-        await stopRecording();
-      } catch (e) {
-        // Show the actual error, not a misleading "ffmpeg not installed"
-        // suffix. By the time stop runs, start has already succeeded —
-        // FFmpeg was available, so a stop failure is something else
-        // (encoder thread panic, disk full, codec mismatch in the
-        // bundled binary, etc.). Misattributing to FFmpeg sent users
-        // chasing missing-binary red herrings on bundles where FFmpeg
-        // was actually present.
-        notify("error", `Stop failed: ${e}`, 10000);
-      } finally {
-        // ALWAYS reset client-side state, even on stop failure. The Rust
-        // `RecordingManager::stop()` does `guard.take()` as its first
-        // operation — once that succeeds, the session is gone from the
-        // manager regardless of what later fails. Leaving `isRecording`
-        // stuck at `true` traps the user into clicking Stop again, which
-        // then errors with "recording is not running" because the session
-        // is already gone. Resetting here lets the user start a new
-        // recording immediately.
-        isRecording = false;
-        recordingStartTime = null;
-        isPaused = false;
-        pausedAccumMs = 0;
-        pausedSince = null;
-        emit("camera-recording-stopped");
-        emit("refresh-recordings");
+    // While counting down, the Record button isn't shown — but a tray toggle
+    // or shortcut could still land here; treat it as "cancel the countdown".
+    if (countdownValue !== null) {
+      cancelCountdown();
+      return;
+    }
+    if (!isRecording) {
+      beginRecording();
+      return;
+    }
+    try {
+      await stopRecording();
+    } catch (e) {
+      // Show the actual error, not a misleading "ffmpeg not installed"
+      // suffix. By the time stop runs, start has already succeeded —
+      // FFmpeg was available, so a stop failure is something else
+      // (encoder thread panic, disk full, codec mismatch in the
+      // bundled binary, etc.). Misattributing to FFmpeg sent users
+      // chasing missing-binary red herrings on bundles where FFmpeg
+      // was actually present.
+      notify("error", `Stop failed: ${e}`, 10000);
+    } finally {
+      // ALWAYS reset client-side state, even on stop failure. The Rust
+      // `RecordingManager::stop()` does `guard.take()` as its first
+      // operation — once that succeeds, the session is gone from the
+      // manager regardless of what later fails. Leaving `isRecording`
+      // stuck at `true` traps the user into clicking Stop again, which
+      // then errors with "recording is not running" because the session
+      // is already gone. Resetting here lets the user start a new
+      // recording immediately.
+      recordingStartTime = null;
+      isPaused = false;
+      pausedAccumMs = 0;
+      pausedSince = null;
+      emit("camera-recording-stopped");
+      emit("refresh-recordings");
+      // Back to "idle" phase — the ResizeObserver → Tween effect expands the
+      // bar back out to the full control set (centered in the fixed window).
+      isRecording = false;
+    }
+  }
+
+  async function startActualRecording() {
+    if (!selectedSource) return;
+    const options: RecordingOptions = {
+      systemAudio: systemAudioOn,
+      microphone: micOn,
+      microphoneDeviceId: micOn ? selectedMicId : null,
+      camera: cameraOn,
+      // Rust feeds this directly to FFmpeg dshow as a DirectShow friendly
+      // name — pass the label, not the browser deviceId hash.
+      cameraDeviceId: cameraOn ? selectedCameraName : null,
+    };
+    try {
+      const result = await startRecording(
+        selectedSource.type,
+        selectedSource.id,
+        options,
+        selectedSource.type === "region" && selectedSource.region
+          ? selectedSource.region
+          : null,
+      );
+      isRecording = true;
+      now = Date.now();
+      recordingStartTime = now;
+      isPaused = false;
+      pausedAccumMs = 0;
+      pausedSince = null;
+      // Flipping to the "recording" phase swaps in the compact transport; the
+      // ResizeObserver → Tween effect collapses the bar (centered in the fixed
+      // window) automatically. Nothing to do here.
+      if (cameraOn) {
+        emit("camera-recording-started", { startedAtUnixMs: now });
       }
-    } else {
-      if (!selectedSource) return;
-      const options: RecordingOptions = {
-        systemAudio: systemAudioOn,
-        microphone: micOn,
-        microphoneDeviceId: micOn ? selectedMicId : null,
-        camera: cameraOn,
-        // Rust feeds this directly to FFmpeg dshow as a DirectShow friendly
-        // name — pass the label, not the browser deviceId hash.
-        cameraDeviceId: cameraOn ? selectedCameraName : null,
-      };
-      try {
-        const result = await startRecording(
-          selectedSource.type,
-          selectedSource.id,
-          options,
-          selectedSource.type === "region" && selectedSource.region
-            ? selectedSource.region
-            : null,
-        );
-        isRecording = true;
-        now = Date.now();
-        recordingStartTime = now;
-        isPaused = false;
-        pausedAccumMs = 0;
-        pausedSince = null;
-        if (cameraOn) {
-          emit("camera-recording-started", { startedAtUnixMs: now });
-        }
-        if (result.warnings.length > 0) {
-          notify("warning", result.warnings.join("\n"), 8000);
-        }
-      } catch (e) {
-        notify("error", `Recording failed: ${e}`, 10000);
+      if (result.warnings.length > 0) {
+        notify("warning", result.warnings.join("\n"), 8000);
       }
+    } catch (e) {
+      notify("error", `Recording failed: ${e}`, 10000);
     }
   }
 
@@ -728,6 +873,30 @@
       .toString()
       .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
   );
+
+  // Out-transition for a leaving phase block: pin it absolute at its current
+  // size so it no longer contributes to the content's measured width while it
+  // fades. The entering block sits in normal flow, so ResizeObserver reports
+  // the *new* width immediately and the bar Tween animates to it concurrent
+  // with the crossfade. Mirrors ExportFlowDialog's `phaseOut`.
+  function phaseOut(node: HTMLElement) {
+    const w = node.offsetWidth;
+    const h = node.offsetHeight;
+    // Pin centered (not top-left) so that as the bar morphs to the smaller
+    // incoming phase, the leaving phase clips/fades symmetrically from the
+    // center instead of appearing to shift to the left.
+    node.style.position = "absolute";
+    node.style.left = "50%";
+    node.style.top = "50%";
+    node.style.width = `${w}px`;
+    node.style.height = `${h}px`;
+    node.style.transform = "translate(-50%, -50%)";
+    return {
+      duration: 220,
+      easing: cubicOut,
+      css: (t: number) => `opacity: ${t}`,
+    };
+  }
 </script>
 
 <!-- Outer wrapper: fills the (oversized) Tauri window. Padding gives the
@@ -739,71 +908,145 @@
   data-tauri-drag-region
 >
 <div
-  class="group/panel relative flex h-11 overflow-hidden no-scrollbar w-full items-center gap-1 bg-card/95 p-2 pl-1 backdrop-blur-3xl border border-border/60 rounded-lg ring-1 ring-foreground/5"
+  class="group/panel relative flex h-11 shrink-0 items-center justify-center overflow-hidden no-scrollbar bg-card/95 backdrop-blur-xl border border-border/60 rounded-lg ring-1 ring-foreground/5"
+  style="width: {barWidth.current}px"
   data-tauri-drag-region
 >
-  <!-- Drag handle: explicit affordance for moving the panel. The whole bar
-       is a Tauri drag region, but users don't know that without a visible
-       grip. Hover lifts opacity so it doesn't compete visually at rest. -->
+  <!-- Content declares its own natural width (`w-fit`); the bar's width is a
+       Tween that follows it via ResizeObserver, so collapse/expand is one
+       smooth motion. The bar centers this content, so it morphs symmetrically. -->
   <div
+    bind:this={barContentEl}
+    class="relative flex w-fit shrink-0 items-center justify-center gap-1 p-2"
     data-tauri-drag-region
-    class="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted/40 hover:text-muted-foreground active:cursor-grabbing"
-    title="Drag to move"
-    aria-label="Drag panel"
   >
-    <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
-  </div>
-
-  <ButtonGroup>
-    <!-- Record / Stop -->
-    <Button
-      onclick={toggleRecording}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      size={isRecording ? "sm" : "icon-sm"}
-      variant={isRecording ? "destructive" : "default"}
-      title={isRecording ? "Stop Recording" : "Start Recording"}
+  {#if phase === "countdown"}
+    <!-- Countdown phase: ring + ticking number + Cancel. Crossfades with the
+         other phases; the bar Tween follows its natural width. -->
+    <div
+      class="flex w-fit items-center gap-2.5"
+      data-tauri-drag-region
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
+      out:phaseOut
     >
-      {#if isRecording}
-        <Square
-          size={12}
-          strokeWidth={0}
-          fill="currentColor"
-          class="animate-pulse"
-        />
-      {:else}
-        <Circle size={14} strokeWidth={0} fill="currentColor" />
-      {/if}
-      {#if isRecording}
+      <div
+        class="relative flex size-7 shrink-0 items-center justify-center"
+        aria-live="assertive"
+      >
+        <span class="absolute inset-0 rounded-full ring-2 ring-primary/25"></span>
         <span
-          class="shrink-0 font-mono text-[13px] font-semibold tabular-nums tracking-tight"
-          class:text-foreground={!isPaused}
-          class:text-muted-foreground={isPaused}
-          data-tauri-drag-region
+          class="font-mono text-[15px] font-bold leading-none tabular-nums text-primary"
         >
-          {timer}
+          {countdownValue}
         </span>
-      {/if}
-    </Button>
-
-    <!-- Pause / Resume -->
-    {#if isRecording}
+      </div>
+      <span
+        class="shrink-0 whitespace-nowrap text-[12px] font-semibold tracking-tight text-foreground/80"
+      >
+        Starting in {countdownValue}s…
+      </span>
       <Button
-        onclick={togglePause}
+        onclick={cancelCountdown}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        size="sm"
+        variant="ghost"
+        class="h-7 gap-1.5"
+        title="Cancel (Esc)"
+      >
+        <X size={12} strokeWidth={2.5} class="text-destructive" />
+        <span class="text-[11px] font-semibold">Cancel</span>
+      </Button>
+    </div>
+  {:else if phase === "recording"}
+    <!-- Recording phase: compact transport — soft-red Stop+timer, Pause,
+         Close — crossfaded in and centered by the bar. -->
+    <div
+      class="flex w-fit items-center gap-1"
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
+      out:phaseOut
+    >
+      <ButtonGroup>
+        <Button
+          onclick={toggleRecording}
+          onmousedown={(e: MouseEvent) => e.stopPropagation()}
+          size="sm"
+          variant="destructive_soft"
+          title="Stop Recording"
+        >
+          <Square
+            size={11}
+            strokeWidth={0}
+            fill="currentColor"
+            class="animate-pulse text-destructive"
+          />
+          <span
+            class="shrink-0 font-mono text-[13px] font-semibold tabular-nums tracking-tight"
+            class:text-foreground={!isPaused}
+            class:text-muted-foreground={isPaused}
+            data-tauri-drag-region
+          >
+            {timer}
+          </span>
+        </Button>
+        <Button
+          onclick={togglePause}
+          onmousedown={(e: MouseEvent) => e.stopPropagation()}
+          size="icon-sm"
+          variant={isPaused ? "success_soft" : "secondary"}
+          title={isPaused ? "Resume Recording" : "Pause Recording"}
+        >
+          {#if isPaused}
+            <Play size={13} strokeWidth={0} fill="currentColor" />
+          {:else}
+            <Pause size={13} strokeWidth={0} fill="currentColor" />
+          {/if}
+        </Button>
+      </ButtonGroup>
+      <Button
+        onclick={closePanel}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        title="Close"
+        size="icon-sm"
+        variant="ghost"
+      >
+        <X size={10} strokeWidth={2} class="shrink-0 text-destructive" />
+      </Button>
+    </div>
+  {:else}
+    <!-- Idle phase: full control set. Crossfades with the others. -->
+    <div
+      class="flex w-fit items-center gap-1"
+      in:fade={{ duration: 200, delay: 80, easing: cubicOut }}
+      out:phaseOut
+    >
+      <!-- Drag handle: explicit affordance for moving the panel. The whole
+           bar is a Tauri drag region, but the grip makes that discoverable. -->
+      <div
+        data-tauri-drag-region
+        class="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted/40 hover:text-muted-foreground active:cursor-grabbing"
+        title="Drag to move"
+        aria-label="Drag panel"
+      >
+        <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
+      </div>
+      <!-- Record. The big primary action; clicking it begins the countdown
+           (or starts capture immediately when countdown is off). -->
+      <Button
+        onclick={toggleRecording}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         size="icon-sm"
-        variant={isPaused ? "default" : "secondary"}
-        title={isPaused ? "Resume Recording" : "Pause Recording"}
+        variant="default"
+        title="Start Recording"
       >
-        {#if isPaused}
-          <Play size={13} strokeWidth={0} fill="currentColor" />
-        {:else}
-          <Pause size={13} strokeWidth={0} fill="currentColor" />
-        {/if}
+        <Circle size={14} strokeWidth={0} fill="currentColor" />
       </Button>
-    {/if}
-  </ButtonGroup>
 
-  <!-- Source -->
+  <!-- Source. Hidden once recording starts — the source is locked in, so the
+       selector just takes space; dropping it is part of the collapse. The
+       fade lives on a wrapping div because Svelte transitions can't bind to a
+       component directly. -->
+  {#if !isRecording}
+  <div class="inline-flex" out:fade={{ duration: 120 }}>
   <Button
     size="sm"
     disabled={isRecording}
@@ -844,8 +1087,19 @@
       />
     {/if}
   </Button>
+  </div>
+  {/if}
 
-  <div class="shrink-0 px-1 ml-auto inline-flex items-center gap-1">
+  <!-- Right cluster. While recording, the profile switcher and device toggles
+       are hidden and `ml-auto` is dropped so the remaining Close button packs
+       in tight next to the transport — the panel collapses to just the
+       essentials. -->
+  <div
+    class="shrink-0 px-1 inline-flex items-center gap-1"
+    class:ml-auto={!isRecording}
+  >
+    {#if !isRecording}
+    <div class="inline-flex items-center gap-1" out:fade={{ duration: 120 }}>
     <!-- Profile switcher button. Opens a separate Tauri window (like the
          device-pickers) instead of a popover — the panel window is too
          short to host an in-place dropdown without changing its height,
@@ -940,6 +1194,8 @@
         {/if}
       </Button>
     </ButtonGroup>
+    </div>
+    {/if}
     <!-- Close -->
     <Button
       onclick={closePanel}
@@ -950,6 +1206,9 @@
     >
       <X size={10} strokeWidth={2} class="shrink-0 text-destructive" />
     </Button>
+  </div>
+    </div>
+  {/if}
   </div>
 </div>
 </div>

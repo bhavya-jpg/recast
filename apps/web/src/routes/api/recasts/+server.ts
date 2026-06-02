@@ -3,6 +3,7 @@ import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { getAuth } from "$lib/auth/server";
 import { getDb } from "$lib/db";
 import { member, recast, share } from "$lib/db/schema";
+import { resolvePlaybackUrl } from "$lib/storage";
 import type { RequestHandler } from "./$types";
 
 type SessionShape = {
@@ -99,6 +100,13 @@ export const GET: RequestHandler = async ({ request, url }) => {
 				ORDER BY ${share.createdAt} DESC
 				LIMIT 1
 			)`,
+			// Tag id array per recast (resolved against the workspace tag list
+			// by the client). `[]` when untagged.
+			tags: sql<string[]>`COALESCE((
+				SELECT json_agg(rt.tag_id)
+				FROM recast_tag rt
+				WHERE rt.recast_id = ${recast.id}
+			), '[]'::json)`,
 		})
 		.from(recast)
 		.where(where)
@@ -109,13 +117,19 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	return json({
 		ok: true,
 		workspaceId,
-		recasts: rows.map((r) => ({
-			...r,
-			// Normalize SQL `bigint`s and `number`s to plain numbers.
-			sizeBytes: Number(r.sizeBytes),
-			views: Number(r.views ?? 0),
-			createdAt: r.createdAt.getTime(),
-			lastViewedAt: r.lastViewedAt ? r.lastViewedAt.getTime() : null,
-		})),
+		recasts: await Promise.all(
+			rows.map(async (r) => ({
+				...r,
+				// `videoUrl` is a bare object key — sign it into a playable URL,
+				// matching the page loaders and the share page.
+				videoUrl: await resolvePlaybackUrl(r.videoUrl),
+				// Normalize SQL `bigint`s and `number`s to plain numbers.
+				sizeBytes: Number(r.sizeBytes),
+				views: Number(r.views ?? 0),
+				createdAt: r.createdAt.getTime(),
+				lastViewedAt: r.lastViewedAt ? r.lastViewedAt.getTime() : null,
+				tags: r.tags ?? [],
+			})),
+		),
 	});
 };

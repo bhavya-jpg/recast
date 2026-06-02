@@ -1,9 +1,9 @@
 <script lang="ts">
   import {
     Circle,
+    FlipHorizontal2,
     LoaderCircle,
     Maximize2,
-    RotateCcw,
     Square,
     Squircle,
     X,
@@ -18,6 +18,7 @@
     openCameraStream,
   } from "$lib/camera/browser-devices";
   import {
+    setWindowAspectRatio,
     updateCameraPreviewState,
     validateCameraSource,
     type CameraPreviewState,
@@ -55,9 +56,23 @@
   // that size. 25% of either axis is comfortably visible without dominating
   // the frame.
   const MAX_SCREEN_FRACTION = 0.25;
-  // Floor: small enough to tuck into a corner, large enough that the live
-  // feed remains intelligible. ~120 logical px ≈ a thumbnail.
-  const MIN_LOGICAL_SIZE = 120;
+  // Floor on the video width. Small enough to tuck into a corner, but bounded
+  // below by the control bar: the window width equals the video width, and the
+  // controls pill (aspect chip + shape + mirror + close, widest at the "16:9"
+  // label) is ~150px wide. Going narrower than that clipped the centered pill
+  // on both sides, so we floor at a width that always fits it.
+  const CONTROL_BAR_MIN_WIDTH = 168;
+  const MIN_LOGICAL_SIZE = CONTROL_BAR_MIN_WIDTH;
+
+  // Fixed-height strip reserved at the *bottom* of the window for the control
+  // bar. The bar lives outside the rounded/overflow-hidden video bubble so it
+  // never gets clipped by the circle/rounded mask and never sits over the
+  // camera feed. The window is this much taller than the video; the aspect
+  // lock (native + JS) only governs `windowHeight − CONTROL_BAR_HEIGHT`, and
+  // the preview state reports just the video rect so the recorded composite is
+  // unaffected. Keep in sync with the strip height in the markup below and the
+  // initial window height in `openCameraPreviewWindow` (ipc.ts).
+  const CONTROL_BAR_HEIGHT = 40;
 
   // Cached max logical size for the current screen — recomputed on mount and
   // whenever a resize crosses screens. Used by the aspect-snap helpers to
@@ -232,24 +247,66 @@
   }
 
   /**
-   * Compute and apply OS-level min/max size constraints based on the
-   * primary screen's available logical dimensions. Called once on mount.
-   * The OS handles drag-resize clamping for free once these are set; the
-   * aspect-snap helpers do their own arithmetic clamp on top so that
-   * programmatic setSize calls (cycling aspect) can't punch past the cap.
+   * Compute and apply OS-level min/max size constraints. The cap is keyed off
+   * the screen's available *width* (`MAX_SCREEN_FRACTION` of it) — every aspect
+   * we offer is landscape-or-square (ratio ≥ 1), so height is always ≤ width
+   * and a square max box of side `0.25·screenW` bounds the window by width
+   * without ever clipping the proportional height. Called once on mount; the
+   * aspect-snap helpers clamp against `maxLogicalW/H` on top so programmatic
+   * setSize calls (cycling aspect) can't punch past the cap.
    */
   async function applySizeConstraints() {
     const screenW = Math.max(window.screen.availWidth || 1920, 320);
-    const screenH = Math.max(window.screen.availHeight || 1080, 320);
-    maxLogicalW = Math.floor(screenW * MAX_SCREEN_FRACTION);
-    maxLogicalH = Math.floor(screenH * MAX_SCREEN_FRACTION);
+    const maxW = Math.floor(screenW * MAX_SCREEN_FRACTION);
+    // Square bounding box for the *video*: width is the binding limit, height
+    // follows aspect. `maxLogicalW/H` are video dimensions; the window adds the
+    // control strip on top.
+    maxLogicalW = maxW;
+    maxLogicalH = maxW;
+
+    // Loosest min height across aspects (the widest, 16:9, gives the shortest
+    // video for a given min width) so the OS floor never out-clamps the native
+    // per-aspect minimum. Window bounds add the control strip.
+    const widestRatio = Math.max(...Object.values(ASPECT_RATIO));
+    const minWinH = Math.round(MIN_LOGICAL_SIZE / widestRatio) + CONTROL_BAR_HEIGHT;
 
     const win = getCurrentWindow();
     try {
-      await win.setMinSize(new LogicalSize(MIN_LOGICAL_SIZE, MIN_LOGICAL_SIZE));
-      await win.setMaxSize(new LogicalSize(maxLogicalW, maxLogicalH));
+      await win.setMinSize(new LogicalSize(MIN_LOGICAL_SIZE, minWinH));
+      await win.setMaxSize(
+        new LogicalSize(maxLogicalW, maxLogicalH + CONTROL_BAR_HEIGHT),
+      );
     } catch (e) {
       console.warn("camera preview size constraints failed:", e);
+    }
+
+    // Install (or refresh) the native aspect lock for the current aspect.
+    void applyNativeAspectLock();
+  }
+
+  /**
+   * Hand the current aspect ratio to the Windows-native WM_SIZING constraint so
+   * the window resizes *proportionally while dragging* — you can't pull width
+   * or height independently, and it won't exceed MAX_SCREEN_FRACTION of the
+   * monitor width. No-op off Windows, where the `snapToAspect` handler below is
+   * the fallback. Re-invoked whenever the aspect changes so the ratio stays in
+   * sync. The drag rect is in physical pixels, so the min crosses as such.
+   */
+  async function applyNativeAspectLock() {
+    try {
+      const ratio = ASPECT_RATIO[aspect];
+      const dpr = window.devicePixelRatio || 1;
+      await setWindowAspectRatio(
+        "camera-preview",
+        ratio,
+        1,
+        MAX_SCREEN_FRACTION,
+        Math.round(MIN_LOGICAL_SIZE * dpr),
+        Math.round(CONTROL_BAR_HEIGHT * dpr),
+      );
+    } catch (e) {
+      // Non-Windows / older build — the JS snap-to-aspect path still applies.
+      console.warn("native aspect lock unavailable:", e);
     }
   }
 
@@ -280,19 +337,26 @@
     opts: { snap?: boolean } = {},
   ) {
     aspect = next;
+    // Keep the native WM_SIZING ratio in lockstep with the chosen aspect so the
+    // next drag is constrained to the new shape, not the previous one.
+    void applyNativeAspectLock();
     if (opts.snap) {
       const win = getCurrentWindow();
       const size = await win.outerSize();
       const factor = window.devicePixelRatio || 1;
+      // Window width == video width (no horizontal chrome).
       const widthLogical = size.width / factor;
       const ratio = ASPECT_RATIO[next];
-      const [clampedW, clampedH] = fitInsideMax(
+      const [clampedW, clampedVideoH] = fitInsideMax(
         widthLogical,
         widthLogical / ratio,
         ratio,
       );
       isSnapping = true;
-      await win.setSize(new LogicalSize(clampedW, clampedH));
+      // Window height = video height + control strip.
+      await win.setSize(
+        new LogicalSize(clampedW, clampedVideoH + CONTROL_BAR_HEIGHT),
+      );
       window.setTimeout(() => {
         isSnapping = false;
       }, 50);
@@ -304,18 +368,20 @@
     if (isSnapping) return;
     const factor = window.devicePixelRatio || 1;
     const w = physWidth / factor;
-    const h = physHeight / factor;
+    // Drag deltas arrive as *window* dimensions — peel off the control strip to
+    // get the video box the aspect ratio actually governs.
+    const videoH = physHeight / factor - CONTROL_BAR_HEIGHT;
     const target = ASPECT_RATIO[aspect];
-    const expectedH = w / target;
-    const [clampedW, clampedH] = fitInsideMax(w, expectedH, target);
+    const expectedVideoH = w / target;
+    const [clampedW, clampedVideoH] = fitInsideMax(w, expectedVideoH, target);
     if (
-      Math.abs(clampedH - h) <= 1 &&
+      Math.abs(clampedVideoH - videoH) <= 1 &&
       Math.abs(clampedW - w) <= 1
     ) return;
     isSnapping = true;
     try {
       await getCurrentWindow().setSize(
-        new LogicalSize(clampedW, clampedH),
+        new LogicalSize(clampedW, clampedVideoH + CONTROL_BAR_HEIGHT),
       );
     } finally {
       window.setTimeout(() => {
@@ -384,11 +450,16 @@
     const screenHeight = Math.max(window.screen.availHeight || 1, 1);
 
     const factor = window.devicePixelRatio || 1;
+    // The control strip sits at the *bottom* of the window; the recorded bubble
+    // is just the video region above it. Subtract the strip so the composite
+    // (which uses windowWidth/Height as the bubble rect) matches what's on
+    // screen and isn't stretched by the controls' height.
+    const videoHeightPhys = Math.max(1, size.height - CONTROL_BAR_HEIGHT * factor);
     const widthLogical = size.width / factor;
     // Relative corner radius proportional to shorter side, capped at 0.5
     // (which paints as a full circle on a 1:1 box). Square → 0, circle →
     // 0.5, rounded → WINDOW_RADIUS scaled to fraction-of-shorter-side.
-    const shortLogical = Math.min(widthLogical, size.height / factor);
+    const shortLogical = Math.min(widthLogical, videoHeightPhys / factor);
     const cornerRadius =
       shape === "square"
         ? 0
@@ -401,10 +472,11 @@
       shape,
       cornerRadius,
       animationPreset: status === "warning" ? "lively" : "soft",
+      // Window top == video top (strip is at the bottom), so X/Y are unchanged.
       windowX: Math.max(0, Math.min(1, position.x / screenWidth)),
       windowY: Math.max(0, Math.min(1, position.y / screenHeight)),
       windowWidth: Math.max(0.05, Math.min(1, size.width / screenWidth)),
-      windowHeight: Math.max(0.05, Math.min(1, size.height / screenHeight)),
+      windowHeight: Math.max(0.05, Math.min(1, videoHeightPhys / screenHeight)),
     };
 
     await updateCameraPreviewState(state);
@@ -421,93 +493,111 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class="group/root relative h-screen w-full min-w-dvw select-none overflow-hidden bg-card scroll-m-0 scrollbar-none transition-[border-radius] duration-150 ease-out motion-reduce:transition-none"
+  class="group/root relative flex h-screen w-full select-none flex-col scroll-m-0 scrollbar-none"
   data-tauri-drag-region
-  style="border-radius: {cssRadius}"
 >
-  <!-- svelte-ignore a11y_media_has_caption -->
-  <video
-    bind:this={videoEl}
-    autoplay
-    playsinline
-    muted
-    class="pointer-events-none h-full w-full min-w-dvw object-cover"
-    style="transform: {isMirrored ? 'scaleX(-1)' : 'none'}"
-  ></video>
-
-  {#if status !== "live" || errorMessage}
-    <div
-      class="absolute inset-0 flex items-center justify-center bg-background/85 p-4 text-center backdrop-blur-md"
-    >
-      <div class="space-y-2">
-        {#if status === "loading"}
-          <LoaderCircle size={18} class="mx-auto animate-spin text-muted-foreground" />
-        {/if}
-        <p class="text-[11px] font-semibold text-foreground">
-          {status === "failed" ? "Camera unavailable" : "Camera"}
-        </p>
-        <p class="max-w-[16rem] text-[10px] leading-relaxed text-muted-foreground">
-          {errorMessage ?? statusMessage}
-        </p>
-      </div>
-    </div>
-  {/if}
-
+  <!-- Video bubble — the ONLY clipped/rounded surface. `flex-1` makes it
+       exactly the window height minus the control strip below, i.e. the video
+       region the aspect lock governs. Controls live outside it (next sibling)
+       so the rounded/circle mask never eats them. -->
   <div
-    class="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border-subtle bg-background/78 px-1 py-1 opacity-0 shadow-craft-floating backdrop-blur-3xl transition-opacity duration-200 group-hover/root:pointer-events-auto group-hover/root:opacity-100"
+    class="relative min-h-0 w-full flex-1 overflow-hidden bg-card transition-[border-radius] duration-150 ease-out motion-reduce:transition-none"
+    data-tauri-drag-region
+    style="border-radius: {cssRadius}"
   >
-    <Button
-      onclick={cycleAspect}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      variant="ghost"
-      size="sm"
-      class="h-6 gap-1 rounded-full px-1.5 font-mono text-[10px] tabular-nums"
-      title="Cycle aspect ratio"
-    >
-      <Maximize2 size={10} strokeWidth={2} />
-      <span>{aspect}</span>
-    </Button>
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video
+      bind:this={videoEl}
+      autoplay
+      playsinline
+      muted
+      class="pointer-events-none h-full w-full object-cover"
+      style="transform: {isMirrored ? 'scaleX(-1)' : 'none'}"
+    ></video>
 
-    {#snippet shapeIcon()}
-      {@const SIcon = shapeMeta.icon}
-      <SIcon size={11} strokeWidth={2} />
-    {/snippet}
-    <Button
-      onclick={cycleShape}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      variant="ghost"
-      size="icon-sm"
-      class="size-6 rounded-full"
-      title={aspect === "1:1"
-        ? `Cycle shape: square → rounded → circle (now ${shapeMeta.label})`
-        : `Cycle shape: square ↔ rounded (now ${shapeMeta.label})`}
-    >
-      {@render shapeIcon()}
-    </Button>
+    {#if status !== "live" || errorMessage}
+      <div
+        class="absolute inset-0 flex items-center justify-center bg-background/85 p-4 text-center backdrop-blur-md"
+      >
+        <div class="space-y-2">
+          {#if status === "loading"}
+            <LoaderCircle size={18} class="mx-auto animate-spin text-muted-foreground" />
+          {/if}
+          <p class="text-[11px] font-semibold text-foreground">
+            {status === "failed" ? "Camera unavailable" : "Camera"}
+          </p>
+          <p class="max-w-[16rem] text-[10px] leading-relaxed text-muted-foreground">
+            {errorMessage ?? statusMessage}
+          </p>
+        </div>
+      </div>
+    {/if}
+  </div>
 
-    <Button
-      onclick={toggleMirror}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      variant={isMirrored ? "default_soft" : "ghost"}
-      size="icon-sm"
-      class="size-6 rounded-full"
-      title={isMirrored ? "Unmirror camera" : "Mirror camera"}
+  <!-- Control strip — fixed-height row BELOW the bubble (outside its overflow),
+       so the pill is never clipped and never overlaps the camera. The window
+       reserves CONTROL_BAR_HEIGHT for it; the pill fades in on hover. -->
+  <div
+    class="flex w-full shrink-0 items-center justify-center"
+    data-tauri-drag-region
+    style="height: {CONTROL_BAR_HEIGHT}px"
+  >
+    <div
+      class="pointer-events-none flex items-center gap-1 rounded-full border border-border-subtle bg-background/78 px-1 py-1 opacity-0 shadow-craft-floating backdrop-blur-3xl transition-opacity duration-200 group-hover/root:pointer-events-auto group-hover/root:opacity-100"
     >
-      <RotateCcw size={11} strokeWidth={2} />
-    </Button>
+      <Button
+        onclick={cycleAspect}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 rounded-full px-1.5 font-mono text-[10px] tabular-nums"
+        title="Cycle aspect ratio"
+      >
+        <Maximize2 size={10} strokeWidth={2} />
+        <span>{aspect}</span>
+      </Button>
 
-    <div class="mx-0.5 h-3 w-px bg-border"></div>
+      {#snippet shapeIcon()}
+        {@const SIcon = shapeMeta.icon}
+        <SIcon size={11} strokeWidth={2} />
+      {/snippet}
+      <Button
+        onclick={cycleShape}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        variant="ghost"
+        size="icon-sm"
+        class="size-6 rounded-full"
+        title={aspect === "1:1"
+          ? `Cycle shape: square → rounded → circle (now ${shapeMeta.label})`
+          : `Cycle shape: square ↔ rounded (now ${shapeMeta.label})`}
+      >
+        {@render shapeIcon()}
+      </Button>
 
-    <Button
-      onclick={closeWindow}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      variant="destructive_soft"
-      size="icon-sm"
-      class="size-6 rounded-full"
-      title="Close camera (Esc)"
-    >
-      <X size={11} strokeWidth={2.5} />
-    </Button>
+      <Button
+        onclick={toggleMirror}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        variant={isMirrored ? "default_soft" : "ghost"}
+        size="icon-sm"
+        class="size-6 rounded-full"
+        title={isMirrored ? "Mirror: on (flip horizontally)" : "Mirror: off"}
+      >
+        <FlipHorizontal2 size={12} strokeWidth={2} />
+      </Button>
+
+      <div class="mx-0.5 h-3 w-px bg-border"></div>
+
+      <Button
+        onclick={closeWindow}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        variant="destructive_soft"
+        size="icon-sm"
+        class="size-6 rounded-full"
+        title="Close camera (Esc)"
+      >
+        <X size={11} strokeWidth={2.5} />
+      </Button>
+    </div>
   </div>
 </div>
 

@@ -48,6 +48,7 @@
   import { Skeleton } from "@recast/ui/skeleton";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
+  import { safeStorage } from "@recast/ui/persisted-state";
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { SvelteSet } from "svelte/reactivity";
@@ -82,15 +83,11 @@
     // Same for Recast Cloud — hydrates sign-in state + the share manifest so
     // each row shows "Share to Cloud" vs. "Copy link / Manage".
     void cloudShare.init();
-    const storedView = localStorage.getItem("exports-view") as
-      | "grid"
-      | "list"
-      | null;
-    if (storedView) view = storedView;
+    view = safeStorage.get<"grid" | "list">("exports-view", view);
   });
 
   $effect(() => {
-    localStorage.setItem("exports-view", view);
+    safeStorage.set("exports-view", view);
   });
 
   async function fetchExports() {

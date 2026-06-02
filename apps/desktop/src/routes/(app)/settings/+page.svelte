@@ -1,26 +1,33 @@
 <script lang="ts">
   import Logo from "$components/logo.svelte";
+  import CloudEndpoint from "$components/settings/CloudEndpoint.svelte";
   import CloudSignIn from "$components/settings/CloudSignIn.svelte";
+  import DeviceCapabilities from "$components/settings/DeviceCapabilities.svelte";
   import GoogleDriveConnection from "$components/settings/GoogleDriveConnection.svelte";
   import { config } from "$constants/app";
   import { getOutputDir, setOutputDir } from "$lib/ipc";
   import {
     ArrowUpRight,
     Cloud,
+    Cpu,
     ExternalLink,
     FlaskConical,
     FolderOpen,
     Github,
     Globe,
     HardDrive,
+    Info,
     Monitor,
     Moon,
     Navigation,
+    Server,
     Settings as SettingsIcon,
     Shield,
     SlidersHorizontal as SlidersIcon,
     Sparkles,
     Sun,
+    Timer,
+    Video,
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { toast } from "@recast/ui/sonner";
@@ -31,39 +38,50 @@
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
 
+  import { syncConsent } from "$lib/analytics/client";
+  import { desktopConsent } from "$lib/stores/consent.svelte";
   import {
     FLAG_META,
     experimentalStore,
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
-  import { desktopConsent } from "$lib/stores/consent.svelte";
-  import { syncConsent } from "$lib/analytics/client";
+  import {
+    recordingCountdown,
+    type CountdownSeconds,
+  } from "$lib/stores/recording-countdown.svelte";
+  import { safeStorage } from "@recast/ui/persisted-state";
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
-  type SettingsTab = "general" | "local" | "cloud";
+  type SettingsTab =
+    | "general"
+    | "recording"
+    | "cloud"
+    | "experimental"
+    | "about";
 
   let outputDir = $state("");
   let currentTheme = $state<Theme>("system");
   let editorWindow = $state<EditorBehavior>("navigate");
+  let countdown = $state<CountdownSeconds>(3);
   let closeToTray = $state(true);
-  // Default to the middle tab so the visual ordering reads naturally
-  // (general — local — cloud) while landing the user on the daily-use
-  // panel (output dir, profiles, editor behavior).
-  let activeTab = $state<SettingsTab>("local");
+  // Land on Recording — the daily-use panel (output directory, profiles,
+  // editor behavior) — rather than the leftmost General tab, matching how
+  // people actually reach for these settings.
+  let activeTab = $state<SettingsTab>("recording");
 
   onMount(() => {
     fetchSettings();
     profilesStore.hydrate();
-    const storedTheme = localStorage.getItem("mode-watcher-mode") as
-      | Theme
-      | null;
-    if (storedTheme) currentTheme = storedTheme;
-    const storedEditor = localStorage.getItem(
+    // `mode-watcher-mode` is owned by the mode-watcher library — we only read
+    // it here to reflect the current choice in the radio group.
+    currentTheme = safeStorage.get<Theme>("mode-watcher-mode", currentTheme);
+    editorWindow = safeStorage.get<EditorBehavior>(
       "recast-editor-window",
-    ) as EditorBehavior | null;
-    if (storedEditor) editorWindow = storedEditor;
+      editorWindow,
+    );
+    countdown = recordingCountdown.value;
   });
 
   function toggleProfilesEnabled() {
@@ -129,8 +147,20 @@
 
   function updateEditorWindow(value: EditorBehavior) {
     editorWindow = value;
-    localStorage.setItem("recast-editor-window", value);
+    safeStorage.set("recast-editor-window", value);
   }
+
+  function updateCountdown(value: CountdownSeconds) {
+    countdown = value;
+    recordingCountdown.set(value);
+  }
+
+  const countdownOptions: { value: CountdownSeconds; label: string }[] = [
+    { value: 0, label: "Off" },
+    { value: 3, label: "3s" },
+    { value: 5, label: "5s" },
+    { value: 10, label: "10s" },
+  ];
 
   async function pickDirectory() {
     const { open } = await import("@tauri-apps/plugin-dialog");
@@ -193,10 +223,16 @@
       </p>
     </header>
 
-    <!-- Tabs: Local (offline, daily-use) / Cloud (network-dependent) /
-         General (theme, experimental, about). Side-slide transition tracks
-         tab order in `TAB_ORDER` so backward navigation slides right and
-         forward navigation slides left — same convention as iOS push/pop. -->
+    <!-- Tabs, grouped by concern:
+           General      — appearance, window behavior + telemetry consent
+           Recording    — storage, editor, capture profiles (daily-use)
+           Cloud        — Recast Cloud + Google Drive (network integrations)
+           Experimental — opt-in unfinished features
+           About        — version, links, and device/encoder diagnostics
+         Telemetry lives under General (it's a small, two-toggle consent
+         block, not its own surface); Experimental gets a dedicated tab so
+         its growing flag list doesn't crowd anything else.
+         Each panel slides/fades in via tw-animate-css inside Tabs.Content. -->
     <div
       in:fly={{ y: 12, duration: 320, delay: 80, easing: cubicOut }}
       class="flex min-w-0 flex-col gap-6"
@@ -206,18 +242,29 @@
         onValueChange={(v) => (activeTab = v as SettingsTab)}
         class="flex flex-col gap-6"
       >
-        <Tabs.List variant="soft" class="grid w-full max-w-md grid-cols-3 gap-1 p-1">
-          <Tabs.Trigger value="general" class="gap-1.5 px-3">
+        <Tabs.List
+          variant="soft"
+          class="grid w-full max-w-2xl grid-cols-5 gap-1 p-1"
+        >
+          <Tabs.Trigger value="general" class="gap-1.5 px-2">
             <SettingsIcon class="size-3.5" />
             <span class="text-[12px] font-semibold">General</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="local" class="gap-1.5 px-3">
-            <HardDrive class="size-3.5" />
-            <span class="text-[12px] font-semibold">Local</span>
+          <Tabs.Trigger value="recording" class="gap-1.5 px-2">
+            <Video class="size-3.5" />
+            <span class="text-[12px] font-semibold">Recording</span>
           </Tabs.Trigger>
-          <Tabs.Trigger value="cloud" class="gap-1.5 px-3">
+          <Tabs.Trigger value="cloud" class="gap-1.5 px-2">
             <Cloud class="size-3.5" />
             <span class="text-[12px] font-semibold">Cloud</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="experimental" class="gap-1.5 px-2">
+            <FlaskConical class="size-3.5" />
+            <span class="text-[12px] font-semibold">Experimental</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="about" class="gap-1.5 px-2">
+            <Info class="size-3.5" />
+            <span class="text-[12px] font-semibold">About</span>
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -225,7 +272,7 @@
              tw-animate-css (defined in @recast/ui's tabs-content.svelte) —
              no need for custom Svelte transitions. Panels not matching the
              active value unmount, so we don't pay layout cost. -->
-        <Tabs.Content value="local" class="flex min-w-0 flex-col gap-8">
+        <Tabs.Content value="recording" class="flex min-w-0 flex-col gap-8">
               <!-- Storage / Output directory -->
               <section id="settings-storage" class="flex flex-col gap-3">
                 <div class="px-1">
@@ -267,6 +314,63 @@
                         <FolderOpen class="size-3.5" />
                         Change
                       </Button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Countdown before recording. Read by the recording panel
+                   (panel/+page.svelte) via the shared COUNTDOWN_KEY localStorage
+                   entry. Recording profiles can override it per-profile for
+                   quick access. -->
+              <section id="settings-countdown" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Timer class="size-3 text-primary" />
+                    Countdown
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Wait a beat before capture starts — time to switch windows.
+                  </p>
+                </div>
+                <div
+                  class="rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                >
+                  <div class="flex items-center justify-between gap-3 px-4 py-3">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-semibold text-foreground">
+                        Countdown before recording
+                      </div>
+                      <div class="text-[11px] text-muted-foreground">
+                        {countdown === 0
+                          ? "Recording starts immediately."
+                          : `A ${countdown}-second countdown shows in the panel first.`}
+                      </div>
+                    </div>
+                    <div
+                      class="flex items-center gap-1 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+                      role="radiogroup"
+                      aria-label="Countdown before recording"
+                    >
+                      {#each countdownOptions as o (o.value)}
+                        {@const active = countdown === o.value}
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onclick={() => updateCountdown(o.value)}
+                          class={cn(
+                            "flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold tabular-nums transition-all duration-200",
+                            active
+                              ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      {/each}
                     </div>
                   </div>
                 </div>
@@ -430,6 +534,41 @@
                   <CloudSignIn />
                 </div>
               </section>
+
+              <!-- Self-hosting server endpoint. Gated behind the `selfHosting`
+                   experimental flag (Settings → Experimental) because Recast
+                   Cloud's server isn't shipped yet — there's nothing to point
+                   at by default, so this stays hidden for everyone except
+                   early self-hosters who opt in. When enabled, the Rust
+                   resolver validates the URL and falls back to the bundled
+                   default, so a bad value can't break sign-in. -->
+              {#if experimentalStore.isEnabled("selfHosting")}
+                <section id="settings-cloud-endpoint" class="flex flex-col gap-3">
+                  <div class="px-1">
+                    <h2
+                      class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                    >
+                      <Server class="size-3 text-primary" />
+                      Self-hosting
+                      <span
+                        class="inline-flex items-center gap-1 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-500"
+                      >
+                        <FlaskConical class="size-2.5" />
+                        Experimental
+                      </span>
+                    </h2>
+                    <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                      Run your own Recast Cloud server? Set its address here.
+                      Everyone else can leave this on the default.
+                    </p>
+                  </div>
+                  <div
+                    class="overflow-hidden rounded-xl border border-border/60 bg-card/70 shadow-(--shadow-craft-inset) backdrop-blur"
+                  >
+                    <CloudEndpoint />
+                  </div>
+                </section>
+              {/if}
 
               <!-- Google Drive connection. Independent of the cloud Account
                    section above: signing into Recast Cloud and connecting
@@ -653,7 +792,9 @@
                   </div>
                 </div>
               </section>
+        </Tabs.Content>
 
+        <Tabs.Content value="experimental" class="flex min-w-0 flex-col gap-8">
               <!-- Experimental features -->
               <section id="settings-experimental" class="flex flex-col gap-3">
                 <div class="px-1">
@@ -711,7 +852,9 @@
                   {/each}
                 </div>
               </section>
+        </Tabs.Content>
 
+        <Tabs.Content value="about" class="flex min-w-0 flex-col gap-8">
               <!-- About -->
               <section id="settings-about" class="flex flex-col gap-3">
                 <div class="px-1">
@@ -731,7 +874,7 @@
                     <div
                       class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-foreground ring-1 ring-inset ring-border/40"
                     >
-                      <Logo class="size-4" />
+                      <Logo class="size-6" />
                     </div>
                     <div class="min-w-0 flex-1">
                       <div class="text-[13px] font-semibold text-foreground">
@@ -777,6 +920,25 @@
                     </Button>
                   </div>
                 </div>
+              </section>
+
+              <!-- Device & diagnostics. Encoder availability is probed live
+                   against this machine's GPU (not just "compiled in"), so the
+                   matrix reflects what Recast can actually use here — handy in
+                   bug reports and for users wondering why capture is on CPU. -->
+              <section id="settings-device" class="flex flex-col gap-3">
+                <div class="px-1">
+                  <h2
+                    class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.15em] text-muted-foreground/70"
+                  >
+                    <Cpu class="size-3 text-primary" />
+                    Device & diagnostics
+                  </h2>
+                  <p class="mt-0.5 text-[11px] text-muted-foreground/80">
+                    Your platform and which video encoders this device supports.
+                  </p>
+                </div>
+                <DeviceCapabilities />
               </section>
         </Tabs.Content>
       </Tabs.Root>

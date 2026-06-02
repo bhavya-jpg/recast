@@ -1,4 +1,4 @@
-import { browser } from "$app/environment";
+import { safeStorage } from "@recast/ui/persisted-state";
 
 /**
  * Dashboard data layer.
@@ -21,10 +21,17 @@ export type Recast = {
 	source: RecordingSource;
 	provider: string | null;
 	views: number;
+	/** Owning folder, or null for the library root. */
+	folderId: string | null;
+	/** Tag ids — resolved against the workspace tag list in the UI. */
+	tags: string[];
 	/** Playable URL. May be a `blob:` URL for session uploads. */
 	videoUrl: string;
 	/** Poster image; empty string renders a gradient placeholder. */
 	posterUrl: string;
+	/** Slug of the recast's most recent share, or null if never shared. The
+	 *  public link is `/share/{latestShareSlug}` — NOT `/share/{id}`. */
+	latestShareSlug?: string | null;
 };
 
 /** Workspace storage quota used by the sidebar meter. */
@@ -52,17 +59,7 @@ function seedRecordings(): Recast[] {
 		{ id: "rec_bug", title: "Bug repro — export hang", durationSec: 52, createdAt: now - 6 * DAY, sizeBytes: 33_000_000, source: "local", provider: null, views: 0, ...sample("ForBiggerEscapes") },
 		{ id: "rec_teaser", title: "Launch teaser cut", durationSec: 31, createdAt: now - 9 * DAY, sizeBytes: 22_000_000, source: "cloud", provider: "Cloudinary", views: 1024, ...sample("ForBiggerFun") },
 		{ id: "rec_support", title: "Support reply — billing", durationSec: 107, createdAt: now - 13 * DAY, sizeBytes: 68_000_000, source: "local", provider: null, views: 0, ...sample("ForBiggerJoyrides") },
-	];
-}
-
-function readJSON<T>(key: string, fallback: T): T {
-	if (!browser) return fallback;
-	try {
-		const raw = localStorage.getItem(key);
-		return raw ? (JSON.parse(raw) as T) : fallback;
-	} catch {
-		return fallback;
-	}
+	].map((r) => ({ folderId: null, tags: [] as string[], ...r })) as Recast[];
 }
 
 /** Blob URLs don't survive a reload — fall back to sample media so the
@@ -79,7 +76,7 @@ class RecordingsStore {
 	hydrated = $state(false);
 
 	constructor() {
-		const stored = readJSON<Recast[] | null>(REC_KEY, null);
+		const stored = safeStorage.get<Recast[] | null>(REC_KEY, null);
 		// Until `hydrate()` is called we show the last cached server list,
 		// or — if we've never seen one — the dummy seed so the design
 		// surface stays explorable on logged-out previews.
@@ -98,7 +95,7 @@ class RecordingsStore {
 	}
 
 	private persist() {
-		if (browser) localStorage.setItem(REC_KEY, JSON.stringify(this.items));
+		safeStorage.set(REC_KEY, this.items);
 	}
 
 	get usedBytes(): number {
@@ -131,6 +128,46 @@ class RecordingsStore {
 			r.id === id
 				? { ...r, source, provider: source === "cloud" ? "Cloudinary" : null }
 				: r,
+		);
+		this.persist();
+	}
+
+	/** Move a recast to a folder (or null for root). Local mirror of the
+	 *  PATCH /api/recasts/[id] call the caller makes. */
+	move(id: string, folderId: string | null) {
+		this.items = this.items.map((r) => (r.id === id ? { ...r, folderId } : r));
+		this.persist();
+	}
+
+	/** Replace a recast's tag id set. Mirrors PUT /api/recasts/[id]/tags. */
+	setTags(id: string, tags: string[]) {
+		this.items = this.items.map((r) => (r.id === id ? { ...r, tags } : r));
+		this.persist();
+	}
+
+	/** Cache a freshly-minted share slug so "Copy link" reuses it instead of
+	 *  creating a duplicate share on the next click. */
+	setShareSlug(id: string, slug: string) {
+		this.items = this.items.map((r) =>
+			r.id === id ? { ...r, latestShareSlug: slug } : r,
+		);
+		this.persist();
+	}
+
+	/** Strip a tag id from every recast that carried it (after the tag is
+	 *  deleted server-side; the recast_tag rows cascade, this mirrors it locally). */
+	removeTagEverywhere(tagId: string) {
+		this.items = this.items.map((r) =>
+			r.tags.includes(tagId) ? { ...r, tags: r.tags.filter((t) => t !== tagId) } : r,
+		);
+		this.persist();
+	}
+
+	/** Drop a folder reference from any recast that pointed at it (after the
+	 *  folder — or its subtree — is deleted server-side; recasts fall to root). */
+	clearFolder(folderIds: Set<string>) {
+		this.items = this.items.map((r) =>
+			r.folderId && folderIds.has(r.folderId) ? { ...r, folderId: null } : r,
 		);
 		this.persist();
 	}
@@ -185,7 +222,7 @@ class SettingsStore {
 	value = $state<DashboardSettings>(defaultSettings);
 
 	constructor() {
-		const s = readJSON<Partial<DashboardSettings>>(SET_KEY, {});
+		const s = safeStorage.get<Partial<DashboardSettings>>(SET_KEY, {});
 		this.value = {
 			profile: { ...defaultSettings.profile, ...s.profile },
 			cloudinary: { ...defaultSettings.cloudinary, ...s.cloudinary },
@@ -194,7 +231,7 @@ class SettingsStore {
 	}
 
 	save() {
-		if (browser) localStorage.setItem(SET_KEY, JSON.stringify(this.value));
+		safeStorage.set(SET_KEY, this.value);
 	}
 
 	get initials(): string {

@@ -10,7 +10,9 @@
  * wiring.
  */
 
-export type ExperimentalFlag = "silenceDetection";
+import { PersistedState } from "@recast/ui/persisted-state";
+
+export type ExperimentalFlag = "silenceDetection" | "selfHosting";
 
 interface FlagMeta {
 	key: ExperimentalFlag;
@@ -25,62 +27,38 @@ export const FLAG_META: FlagMeta[] = [
 		description:
 			"Detect dead air (quiet audio + still cursor) and skip it during playback/export. Hidden when off.",
 	},
+	{
+		key: "selfHosting",
+		label: "Self-hosting server endpoint",
+		description:
+			"Point the app at your own Recast Cloud server. Recast Cloud isn't ready yet, so this is for early self-hosters only — leave off to use the default.",
+	},
 ];
 
 const DEFAULTS: Record<ExperimentalFlag, boolean> = {
 	silenceDetection: false,
+	selfHosting: false,
 };
 
 const STORAGE_KEY = "recast-experimental-flags";
 
-function load(): Record<ExperimentalFlag, boolean> {
-	if (typeof localStorage === "undefined") return { ...DEFAULTS };
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return { ...DEFAULTS };
-		const parsed = JSON.parse(raw) as Partial<Record<ExperimentalFlag, boolean>>;
-		return { ...DEFAULTS, ...parsed };
-	} catch {
-		return { ...DEFAULTS };
-	}
-}
-
-function persist(flags: Record<ExperimentalFlag, boolean>) {
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(flags));
-	} catch {
-		// Quota / private mode — best effort.
-	}
-}
-
 function createExperimentalStore() {
-	// Read once at module init. localStorage is available in Tauri webviews;
-	// the load() guard handles the SSR/no-window edge cases.
-	let flags = $state<Record<ExperimentalFlag, boolean>>(load());
-
-	// Cross-window sync. Tauri v2 webviews share localStorage origin, so a
-	// write from the settings window fires a `storage` event in any editor
-	// windows that were already open. Re-read on match so the flag flip is
-	// reflected without a reload. Same-window writes don't fire `storage`,
-	// but `setEnabled` updates the rune directly — both paths covered.
-	if (typeof window !== "undefined") {
-		window.addEventListener("storage", (e) => {
-			if (e.key !== STORAGE_KEY) return;
-			flags = load();
-		});
-	}
+	// Backed by the shared PersistedState primitive: synchronous first read,
+	// JSON storage merged over DEFAULTS (so adding a flag later doesn't wipe a
+	// user's saved choices), and cross-window `storage` sync. Tauri v2 webviews
+	// share a localStorage origin, so flipping a flag in the settings window is
+	// reflected in any open editor windows without a reload.
+	const flags = new PersistedState<Record<ExperimentalFlag, boolean>>(STORAGE_KEY, DEFAULTS);
 
 	return {
 		get silenceDetection() {
-			return flags.silenceDetection;
+			return flags.current.silenceDetection;
 		},
 		isEnabled(key: ExperimentalFlag): boolean {
-			return flags[key];
+			return flags.current[key];
 		},
 		setEnabled(key: ExperimentalFlag, value: boolean) {
-			flags = { ...flags, [key]: value };
-			persist(flags);
+			flags.current = { ...flags.current, [key]: value };
 		},
 	};
 }

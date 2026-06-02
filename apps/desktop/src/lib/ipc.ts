@@ -76,6 +76,72 @@ export interface AutosaveState {
 
 //  System commands
 
+/** One encoder candidate (H.264 or HEVC) and whether it really initializes
+ *  here. Mirrors the Rust `EncoderAvailability` struct (`probe_video_encoders`). */
+export interface EncoderAvailability {
+	name: string;
+	label: string;
+	vendor: string;
+	/** Codec family — "H.264" or "HEVC" — used to group the matrix. */
+	family: string;
+	hardware: boolean;
+	available: boolean;
+	active: boolean;
+}
+
+/** ffmpeg/ffprobe resolution + codec diagnostics. Mirrors the Rust
+ *  `FfmpegDiagnostics` struct (`diagnose_ffmpeg`). */
+export interface FfmpegDiagnostics {
+	ffmpeg_path: string;
+	ffprobe_path: string;
+	version: string | null;
+	h264_encoder: string;
+	encoders_present: string[];
+	encoders_missing: string[];
+}
+
+/** Probe which video encoders actually work on this device (real init
+ *  probe, not just "compiled in"). Each hardware probe spawns ffmpeg, so
+ *  this can take up to ~2s cold — call it off the render path. */
+export function probeVideoEncoders(): Promise<EncoderAvailability[]> {
+	return invoke<EncoderAvailability[]>("probe_video_encoders");
+}
+
+/** Resolved ffmpeg paths, version, and which export codecs are present. */
+export function diagnoseFfmpeg(): Promise<FfmpegDiagnostics> {
+	return invoke<FfmpegDiagnostics>("diagnose_ffmpeg");
+}
+
+/**
+ * Lock a window's resize to a fixed aspect ratio and cap its width at a
+ * fraction of its monitor. On Windows this is a real-time WM_SIZING constraint
+ * (proportional while dragging); other platforms no-op and rely on the JS
+ * snap-to-aspect fallback. Re-call when the ratio changes.
+ *
+ * @param minWidthPx minimum width in *physical* pixels (the OS drag rect is
+ *   physical too) — pass `logicalMin * devicePixelRatio`.
+ * @param chromePx fixed, non-scaling vertical space (physical px) reserved at
+ *   the bottom of the window for a control bar outside the video. The aspect
+ *   applies to `height - chromePx`. Pass 0 for a video-only window.
+ */
+export function setWindowAspectRatio(
+	label: string,
+	aspectWidth: number,
+	aspectHeight: number,
+	maxScreenFraction: number,
+	minWidthPx: number,
+	chromePx: number,
+): Promise<void> {
+	return invoke("set_window_aspect_ratio", {
+		label,
+		aspectWidth,
+		aspectHeight,
+		maxScreenFraction,
+		minWidthPx,
+		chromePx,
+	});
+}
+
 export function getOutputDir(): Promise<string> {
 	return invoke<string>("get_output_dir");
 }
@@ -577,11 +643,16 @@ export async function openCameraPreviewWindow() {
   }
 
   const previewSize = 320;
+  // The window is the square video bubble plus a control strip below it. Keep
+  // this strip height in sync with `CONTROL_BAR_HEIGHT` in
+  // `routes/camera-preview/+page.svelte` so the window opens at the right size
+  // and doesn't visibly resize itself once the aspect lock kicks in on mount.
+  const CONTROL_BAR_HEIGHT = 40;
   const previewWin = new WebviewWindow("camera-preview", {
     url: "/camera-preview",
     title: "Camera",
     width: previewSize,
-    height: previewSize,
+    height: previewSize + CONTROL_BAR_HEIGHT,
     decorations: false,
     transparent: true,
     shadow: false,
@@ -589,7 +660,7 @@ export async function openCameraPreviewWindow() {
     resizable: true,
     skipTaskbar: true,
     x: Math.round(window.screen.availWidth - previewSize - 40),
-    y: Math.round(window.screen.availHeight - previewSize - 40),
+    y: Math.round(window.screen.availHeight - previewSize - CONTROL_BAR_HEIGHT - 40),
   });
 
   previewWin.once("tauri://error", (e) => console.error(e));
