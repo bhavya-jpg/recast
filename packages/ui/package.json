@@ -163,6 +163,10 @@
     "./utils": {
       "svelte": "./src/lib/utils.ts",
       "default": "./src/lib/utils.ts"
+    },
+    "./persisted-state": {
+      "svelte": "./src/lib/state/persisted-state.svelte.ts",
+      "default": "./src/lib/state/persisted-state.svelte.ts"
     }
   },
   "peerDependencies": {

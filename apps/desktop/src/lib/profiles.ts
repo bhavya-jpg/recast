@@ -25,6 +25,15 @@ export interface RecordingProfile {
 	cameraLabel: string | null;
 	/** Browser MediaDevices id — what the camera-preview window consumes. */
 	cameraDeviceId: string | null;
+	/**
+	 * Per-profile countdown override (seconds) before capture starts. `null`
+	 * or absent means "inherit the global Settings → Recording countdown";
+	 * `0` explicitly disables the countdown for this profile. Lets a "quick
+	 * capture" profile start instantly while a "presentation" profile waits.
+	 * Not part of the capability fingerprint (`capSig`) — it's a preference,
+	 * not a capability, so two profiles can't differ by countdown alone.
+	 */
+	countdown?: number | null;
 	isDefault: boolean;
 }
 

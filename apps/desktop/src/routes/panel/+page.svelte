@@ -54,7 +54,11 @@
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-  import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+  import {
+    getCurrentWindow,
+    LogicalPosition,
+    LogicalSize,
+  } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
 
@@ -90,13 +94,16 @@
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
-  // Countdown-before-recording. `countdownSeconds` is the user's setting
-  // (Settings → Recording, or a profile override), mirrored from localStorage.
-  // `countdownValue` is the live tick — non-null only while counting down, so
-  // it drives the transient "countdown" panel phase between the Record click
-  // and the real capture start.
+  // Countdown-before-recording. `globalCountdown` mirrors the Settings →
+  // Recording value from localStorage; `profileCountdownOverride` is set when a
+  // profile with its own countdown is applied (null = inherit). The effective
+  // `countdownSeconds` prefers the profile override. `countdownValue` is the
+  // live tick — non-null only while counting down, driving the transient
+  // "countdown" panel phase between the Record click and real capture start.
   const COUNTDOWN_KEY = "recast-recording-countdown";
-  let countdownSeconds = $state(3);
+  let globalCountdown = $state(3);
+  let profileCountdownOverride = $state<number | null>(null);
+  const countdownSeconds = $derived(profileCountdownOverride ?? globalCountdown);
   let countdownValue = $state<number | null>(null);
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -462,6 +469,10 @@
       cameraWarning = null;
     }
 
+    // Profile countdown override — null/absent falls back to the global
+    // setting via the `countdownSeconds` derived.
+    profileCountdownOverride = profile.countdown ?? null;
+
     activeProfileId = profile.id;
   }
 
@@ -625,9 +636,9 @@
     try {
       const raw = localStorage.getItem(COUNTDOWN_KEY);
       const n = raw !== null ? Number.parseInt(raw, 10) : 3;
-      countdownSeconds = n === 0 || n === 3 || n === 5 || n === 10 ? n : 3;
+      globalCountdown = n === 0 || n === 3 || n === 5 || n === 10 ? n : 3;
     } catch {
-      countdownSeconds = 3;
+      globalCountdown = 3;
     }
   }
 
@@ -667,34 +678,51 @@
 
   /**
    * Animate the panel window's width to `to` (logical px) with an eased rAF
-   * tween. Shrinks from the right (top-left origin fixed) so the collapsed
-   * controls — which are left-packed during recording — stay put while the
-   * empty space folds away. Honors prefers-reduced-motion by snapping.
+   * tween, keeping the panel centered on its current center (so it collapses
+   * symmetrically toward the middle rather than drifting to one edge). Honors
+   * prefers-reduced-motion by snapping. A monotonic token cancels any
+   * in-flight tween if a newer one starts.
    */
   async function animatePanelWidth(to: number) {
     const win = getCurrentWindow();
     const token = ++widthAnimToken;
 
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
-      await win.setSize(new LogicalSize(to, PANEL_H)).catch(() => {});
-      return;
-    }
-
+    // Current logical width + center, so we can hold the center fixed and
+    // resolve the next top-left as the width changes.
     let from = to;
+    let centerX: number | null = null;
+    let topY: number | null = null;
     try {
-      const [size, factor] = await Promise.all([
+      const [size, pos, factor] = await Promise.all([
         win.innerSize(),
+        win.outerPosition(),
         win.scaleFactor(),
       ]);
       from = size.width / factor;
+      const leftX = pos.x / factor;
+      topY = pos.y / factor;
+      centerX = leftX + from / 2;
     } catch {
-      /* fall back to a snap if we can't read the current size */
+      /* fall back to a plain snap below if we can't read geometry */
     }
     if (token !== widthAnimToken) return;
-    if (Math.round(from) === Math.round(to)) return;
+
+    const apply = (w: number) => {
+      win.setSize(new LogicalSize(w, PANEL_H)).catch(() => {});
+      if (centerX !== null && topY !== null) {
+        win
+          .setPosition(new LogicalPosition(Math.round(centerX - w / 2), Math.round(topY)))
+          .catch(() => {});
+      }
+    };
+
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || Math.round(from) === Math.round(to)) {
+      apply(to);
+      return;
+    }
 
     const duration = 300;
     const start = performance.now();
@@ -703,8 +731,7 @@
         if (token !== widthAnimToken) return resolve();
         const p = Math.min(1, (t - start) / duration);
         const eased = 1 - Math.pow(1 - p, 3); // cubicOut, matches morph.ts
-        const w = Math.round(from + (to - from) * eased);
-        win.setSize(new LogicalSize(w, PANEL_H)).catch(() => {});
+        apply(Math.round(from + (to - from) * eased));
         if (p < 1) requestAnimationFrame(frame);
         else resolve();
       };
@@ -992,8 +1019,11 @@
   </ButtonGroup>
 
   <!-- Source. Hidden once recording starts — the source is locked in, so the
-       selector just takes space; dropping it is part of the collapse. -->
+       selector just takes space; dropping it is part of the collapse. The
+       fade lives on a wrapping div because Svelte transitions can't bind to a
+       component directly. -->
   {#if !isRecording}
+  <div class="inline-flex" out:fade={{ duration: 120 }}>
   <Button
     size="sm"
     disabled={isRecording}
@@ -1001,7 +1031,6 @@
     onmousedown={(e: MouseEvent) => e.stopPropagation()}
     variant="ghost"
     class="group/source hover:scale-none"
-    out:fade={{ duration: 120 }}
   >
     {#if selectedSource?.type === "window"}
       <AppWindow
@@ -1035,6 +1064,7 @@
       />
     {/if}
   </Button>
+  </div>
   {/if}
 
   <!-- Right cluster. While recording, the profile switcher and device toggles

@@ -14,6 +14,7 @@
     SlidersHorizontal as SlidersIcon,
     Sparkles,
     Star,
+    Timer,
     Trash2,
     Volume2,
     VolumeOff,
@@ -262,6 +263,21 @@
     draft = { ...draft, cameraDeviceId: dev.deviceId, cameraLabel: dev.label };
   }
 
+  // Per-profile countdown override. `null` = inherit the global Settings →
+  // Recording countdown; `0` = no countdown for this profile.
+  const countdownChoices: { value: number | null; label: string }[] = [
+    { value: null, label: "Default" },
+    { value: 0, label: "Off" },
+    { value: 3, label: "3s" },
+    { value: 5, label: "5s" },
+    { value: 10, label: "10s" },
+  ];
+
+  function setDraftCountdown(value: number | null) {
+    if (!draft) return;
+    draft = { ...draft, countdown: value };
+  }
+
   function handleGlobalShortcut(e: KeyboardEvent) {
     const meta = e.metaKey || e.ctrlKey;
     if (!meta || e.shiftKey || e.altKey) return;
@@ -314,6 +330,12 @@
         (profile.cameraLabel
           ? `Cam: ${profile.cameraLabel}`
           : "Camera"),
+      // Only surface an explicit countdown override (null/undefined inherits
+      // the global setting and isn't worth a chip).
+      profile.countdown != null &&
+        (profile.countdown === 0
+          ? "No countdown"
+          : `${profile.countdown}s countdown`),
     ].filter(Boolean) as string[];
     return parts.length === 0 ? "Silent capture" : parts.join(" · ");
   }
@@ -928,6 +950,49 @@
             "No cameras detected",
           )}
         {/if}
+
+        <!-- Countdown override. "Default" inherits the global Settings →
+             Recording countdown; the rest pin a per-profile value for quick
+             access when switching profiles. -->
+        <div class="flex items-center gap-3 px-5 py-3">
+          <span
+            class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-muted-foreground ring-1 ring-inset ring-border/40"
+            aria-hidden="true"
+          >
+            <Timer size={14} />
+          </span>
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="truncate text-[12.5px] font-semibold text-foreground">
+              Countdown
+            </span>
+            <span class="truncate text-[11px] font-medium text-muted-foreground">
+              Seconds before capture starts.
+            </span>
+          </span>
+          <div
+            class="flex items-center gap-0.5 rounded-xl bg-muted/30 p-1 ring-1 ring-inset ring-border/40"
+            role="radiogroup"
+            aria-label="Countdown before recording"
+          >
+            {#each countdownChoices as c (c.label)}
+              {@const active = (draft.countdown ?? null) === c.value}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onclick={() => setDraftCountdown(c.value)}
+                class={cn(
+                  "flex h-6 items-center rounded-lg px-2 text-[10.5px] font-semibold tabular-nums transition-all duration-200",
+                  active
+                    ? "bg-card text-foreground shadow-(--shadow-craft-inset) ring-1 ring-inset ring-border/40"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {c.label}
+              </button>
+            {/each}
+          </div>
+        </div>
       </div>
 
       <footer
