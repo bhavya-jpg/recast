@@ -1,13 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { safeStorage } from "@recast/ui/persisted-state";
   type Theme = "light" | "dark" | "system";
 
   let currentTheme = $state<Theme>("system");
   onMount(() => {
-    const storedTheme = localStorage.getItem(
-      "mode-watcher-mode",
-    ) as Theme | null;
-    if (storedTheme) currentTheme = storedTheme;
+    // Read-only — mode-watcher owns this key.
+    currentTheme = safeStorage.get<Theme>("mode-watcher-mode", currentTheme);
   });
 
   let {

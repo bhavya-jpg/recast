@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { folder, recast, share, tag } from "$lib/db/schema";
 import { QUOTA } from "$lib/db/schema/usage";
+import { resolvePlaybackUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
 // Archived rows only ever belong to Free workspaces (Pro/Enterprise never
@@ -104,13 +105,18 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 	return {
 		workspaceId,
-		recasts: rows.map((r) => ({
-			...r,
-			sizeBytes: Number(r.sizeBytes),
-			views: Number(r.views ?? 0),
-			createdAt: r.createdAt.getTime(),
-			tags: r.tags ?? [],
-		})),
+		// `videoUrl` is stored as a bare object key; sign it into a playable URL
+		// the same way the share page does (signing is local/cheap per row).
+		recasts: await Promise.all(
+			rows.map(async (r) => ({
+				...r,
+				videoUrl: await resolvePlaybackUrl(r.videoUrl),
+				sizeBytes: Number(r.sizeBytes),
+				views: Number(r.views ?? 0),
+				createdAt: r.createdAt.getTime(),
+				tags: r.tags ?? [],
+			})),
+		),
 		archived: archivedRows.map((r) => {
 			const archivedMs = (r.archivedAt ?? r.createdAt).getTime();
 			return {

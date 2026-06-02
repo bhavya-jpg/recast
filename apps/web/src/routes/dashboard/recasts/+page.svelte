@@ -44,6 +44,7 @@
 			tags: r.tags ?? [],
 			videoUrl: r.videoUrl,
 			posterUrl: r.posterUrl ?? "",
+			latestShareSlug: r.latestShareSlug ?? null,
 		}));
 		const folders = data.folders;
 		const tags = data.tags;
@@ -260,10 +261,20 @@
 
 	async function copyLink(rec: Recast) {
 		try {
-			await navigator.clipboard.writeText(`https://recast.li/share/${rec.id}`);
+			// The public link is keyed by the share SLUG, not the recast id, and
+			// lives on this same origin. If the recast was never shared, mint a
+			// link first (public — same default as the upload flow) and cache the
+			// slug so a second click doesn't create a duplicate share.
+			let slug = rec.latestShareSlug ?? null;
+			if (!slug) {
+				const { slug: newSlug } = await api.shareRecast(rec.id);
+				slug = newSlug;
+				recastsStore.setShareSlug(rec.id, slug);
+			}
+			await navigator.clipboard.writeText(`${location.origin}/share/${slug}`);
 			toast.success("Share link copied to clipboard.");
-		} catch {
-			toast.error("Couldn't access the clipboard.");
+		} catch (e) {
+			toast.error((e as Error)?.message ?? "Couldn't copy the share link.");
 		}
 	}
 

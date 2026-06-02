@@ -48,6 +48,14 @@ export async function deleteRecast(id: string): Promise<void> {
 export async function setRecastTags(id: string, tagIds: string[]): Promise<void> {
 	await jsonOrThrow(await put(`/api/recasts/${id}/tags`, { tagIds }));
 }
+/** Mint a share link for a recast. Default visibility matches the upload flow
+ *  ("public"). Returns the slug + the absolute shareUrl the server built. */
+export async function shareRecast(
+	id: string,
+	visibility: "private" | "workspace" | "selected" | "public" = "public",
+): Promise<{ slug: string; shareUrl: string }> {
+	return jsonOrThrow(await post(`/api/recasts/${id}/share`, { visibility }));
+}
 
 // ── Folders ──────────────────────────────────────────────────────────
 export type FolderDTO = {

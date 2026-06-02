@@ -46,13 +46,14 @@
     type ExperimentalFlag,
   } from "$lib/stores/experimental.svelte";
   import { profilesStore } from "$lib/stores/profiles.svelte";
+  import {
+    recordingCountdown,
+    type CountdownSeconds,
+  } from "$lib/stores/recording-countdown.svelte";
+  import { safeStorage } from "@recast/ui/persisted-state";
 
   type Theme = "light" | "dark" | "system";
   type EditorBehavior = "navigate" | "new-window";
-  type CountdownSeconds = 0 | 3 | 5 | 10;
-  // localStorage key shared with the recording panel (panel/+page.svelte),
-  // which reads it to decide how long to count down before capture starts.
-  const COUNTDOWN_KEY = "recast-recording-countdown";
   type SettingsTab =
     | "general"
     | "recording"
@@ -73,19 +74,14 @@
   onMount(() => {
     fetchSettings();
     profilesStore.hydrate();
-    const storedTheme = localStorage.getItem("mode-watcher-mode") as
-      | Theme
-      | null;
-    if (storedTheme) currentTheme = storedTheme;
-    const storedEditor = localStorage.getItem(
+    // `mode-watcher-mode` is owned by the mode-watcher library — we only read
+    // it here to reflect the current choice in the radio group.
+    currentTheme = safeStorage.get<Theme>("mode-watcher-mode", currentTheme);
+    editorWindow = safeStorage.get<EditorBehavior>(
       "recast-editor-window",
-    ) as EditorBehavior | null;
-    if (storedEditor) editorWindow = storedEditor;
-    const storedCountdown = localStorage.getItem(COUNTDOWN_KEY);
-    if (storedCountdown !== null) {
-      const n = Number.parseInt(storedCountdown, 10);
-      if (n === 0 || n === 3 || n === 5 || n === 10) countdown = n;
-    }
+      editorWindow,
+    );
+    countdown = recordingCountdown.value;
   });
 
   function toggleProfilesEnabled() {
@@ -151,12 +147,12 @@
 
   function updateEditorWindow(value: EditorBehavior) {
     editorWindow = value;
-    localStorage.setItem("recast-editor-window", value);
+    safeStorage.set("recast-editor-window", value);
   }
 
   function updateCountdown(value: CountdownSeconds) {
     countdown = value;
-    localStorage.setItem(COUNTDOWN_KEY, String(value));
+    recordingCountdown.set(value);
   }
 
   const countdownOptions: { value: CountdownSeconds; label: string }[] = [

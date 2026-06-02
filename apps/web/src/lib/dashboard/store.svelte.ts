@@ -29,6 +29,9 @@ export type Recast = {
 	videoUrl: string;
 	/** Poster image; empty string renders a gradient placeholder. */
 	posterUrl: string;
+	/** Slug of the recast's most recent share, or null if never shared. The
+	 *  public link is `/share/{latestShareSlug}` — NOT `/share/{id}`. */
+	latestShareSlug?: string | null;
 };
 
 /** Workspace storage quota used by the sidebar meter. */
@@ -139,6 +142,15 @@ class RecordingsStore {
 	/** Replace a recast's tag id set. Mirrors PUT /api/recasts/[id]/tags. */
 	setTags(id: string, tags: string[]) {
 		this.items = this.items.map((r) => (r.id === id ? { ...r, tags } : r));
+		this.persist();
+	}
+
+	/** Cache a freshly-minted share slug so "Copy link" reuses it instead of
+	 *  creating a duplicate share on the next click. */
+	setShareSlug(id: string, slug: string) {
+		this.items = this.items.map((r) =>
+			r.id === id ? { ...r, latestShareSlug: slug } : r,
+		);
 		this.persist();
 	}
 

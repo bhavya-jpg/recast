@@ -40,6 +40,7 @@
   import { Skeleton } from "@recast/ui/skeleton";
   import { toast } from "@recast/ui/sonner";
   import { cn } from "@recast/ui/utils";
+  import { safeStorage } from "@recast/ui/persisted-state";
   import { listen } from "@tauri-apps/api/event";
   import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
   import { onMount } from "svelte";
@@ -67,16 +68,11 @@
 
   onMount(() => {
     fetchRecasts();
-    const stored = localStorage.getItem("recast-editor-window") as
-      | "navigate"
-      | "new-window"
-      | null;
-    if (stored) editorWindow = stored;
-    const storedView = localStorage.getItem("recasts-view") as
-      | "grid"
-      | "list"
-      | null;
-    if (storedView) view = storedView;
+    editorWindow = safeStorage.get<"navigate" | "new-window">(
+      "recast-editor-window",
+      editorWindow,
+    );
+    view = safeStorage.get<"grid" | "list">("recasts-view", view);
     const unlisten = listen("refresh-recordings", () => fetchRecasts());
     return () => {
       unlisten.then((fn) => fn());
@@ -84,7 +80,7 @@
   });
 
   $effect(() => {
-    localStorage.setItem("recasts-view", view);
+    safeStorage.set("recasts-view", view);
   });
 
   async function fetchRecasts() {

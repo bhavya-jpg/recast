@@ -289,6 +289,31 @@ export async function deleteObject(key: string): Promise<void> {
 }
 
 /**
+ * Resolve a stored `videoUrl` (or any object key) into something a browser
+ * can actually fetch. Uploads persist the *bare key* (e.g.
+ * `workspace/{ws}/{recast}.mp4`); for providers without a public base URL
+ * that key isn't directly playable, so we mint a short-lived signed GET —
+ * the same thing the share page does. Already-absolute URLs (legacy rows,
+ * public-CDN assets) and the unconfigured-storage case pass through
+ * unchanged, and a signing failure degrades to the raw value rather than
+ * throwing the whole page load.
+ */
+export async function resolvePlaybackUrl(
+	keyOrUrl: string | null | undefined,
+	expiresInSeconds?: number,
+): Promise<string> {
+	const value = keyOrUrl ?? "";
+	if (!value || /^https?:\/\//.test(value)) return value;
+	if (!isStorageConfigured()) return value;
+	try {
+		return await signDownloadUrl({ key: value, expiresInSeconds });
+	} catch (err) {
+		console.error("[storage] resolvePlaybackUrl sign failed", err);
+		return value;
+	}
+}
+
+/**
  * Public URL for the object when the provider exposes one (R2 with
  * custom domain, public S3, Cloudinary `secure_url`, etc.). Returns
  * null when only signed reads are possible.

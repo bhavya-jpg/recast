@@ -19,6 +19,7 @@
   import { Button } from "@recast/ui/button";
   import * as Tooltip from "@recast/ui/tooltip";
   import { cn } from "@recast/ui/utils";
+  import { safeStorage } from "@recast/ui/persisted-state";
 
   interface Props {
     store: EditorStore;
@@ -58,10 +59,7 @@
   ];
 
   function loadSensitivity(): Sensitivity {
-    const v =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(SENSITIVITY_KEY)
-        : null;
+    const v = safeStorage.get<string>(SENSITIVITY_KEY, "");
     return v === "relaxed" || v === "aggressive" ? v : "balanced";
   }
 
@@ -70,11 +68,7 @@
   function setSensitivity(next: Sensitivity) {
     if (next === sensitivity) return;
     sensitivity = next;
-    try {
-      localStorage.setItem(SENSITIVITY_KEY, next);
-    } catch {
-      // localStorage unavailable — sensitivity just won't persist.
-    }
+    safeStorage.set(SENSITIVITY_KEY, next);
     // The load effect re-runs because it reads `sensitivity`.
   }
 

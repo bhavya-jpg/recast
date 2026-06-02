@@ -226,9 +226,9 @@
           )}
         >
           {#if capture.ok}
-            <MonitorPlay class="size-5" />
+            <MonitorPlay class="size-4" />
           {:else}
-            <MonitorOff class="size-5" />
+            <MonitorOff class="size-4" />
           {/if}
         </div>
         <div class="min-w-0 flex-1">

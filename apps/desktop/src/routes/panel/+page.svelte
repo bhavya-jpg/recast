@@ -50,6 +50,7 @@
   } from "@lucide/svelte";
   import { Button } from "@recast/ui/button";
   import { ButtonGroup } from "@recast/ui/button-group";
+  import { recordingCountdown } from "$lib/stores/recording-countdown.svelte";
   import { ask } from "@tauri-apps/plugin-dialog";
   import { emit, listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
@@ -60,7 +61,9 @@
     LogicalSize,
   } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
-  import { fade } from "svelte/transition";
+  import { Tween } from "svelte/motion";
+  import { cubicOut } from "svelte/easing";
+  import { fade, scale } from "svelte/transition";
 
   // The panel window is too small to host its own Sonner Toaster; the
   // main window's layout listens for `ui:toast` events and renders
@@ -94,28 +97,98 @@
   let recordingStartTime: number | null = $state(null);
   let now = $state(Date.now());
 
-  // Countdown-before-recording. `globalCountdown` mirrors the Settings →
-  // Recording value from localStorage; `profileCountdownOverride` is set when a
-  // profile with its own countdown is applied (null = inherit). The effective
-  // `countdownSeconds` prefers the profile override. `countdownValue` is the
-  // live tick — non-null only while counting down, driving the transient
-  // "countdown" panel phase between the Record click and real capture start.
-  const COUNTDOWN_KEY = "recast-recording-countdown";
-  let globalCountdown = $state(3);
+  // Countdown-before-recording. The global value comes from the shared
+  // `recordingCountdown` store (kept in sync with the Settings window for free);
+  // `profileCountdownOverride` is set when a profile with its own countdown is
+  // applied (null = inherit). The effective `countdownSeconds` prefers the
+  // profile override. `countdownValue` is the live tick — non-null only while
+  // counting down, driving the transient "countdown" panel phase between the
+  // Record click and real capture start.
   let profileCountdownOverride = $state<number | null>(null);
-  const countdownSeconds = $derived(profileCountdownOverride ?? globalCountdown);
+  const countdownSeconds = $derived(
+    profileCountdownOverride ?? recordingCountdown.value,
+  );
   let countdownValue = $state<number | null>(null);
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
-  // Panel window dimensions. Idle shows the full control set (matches the
-  // launch size in ipc.ts); while recording we collapse to just
-  // Stop+timer / Pause / Close and shrink the window to fit so the rest of
-  // the bar isn't an invisible click-catcher over the desktop.
+  // Panel sizing. The bar's width is driven by a Svelte `Tween` that follows
+  // the *measured* natural width of its content (the same morph technique as
+  // ExportFlowDialog) — buttery, rAF-driven, and consistent with the rest of
+  // the app's motion. The content declares its own size via `w-fit`; the bar
+  // just follows. The Tauri window is then snapped once to hug the bar so the
+  // desktop behind isn't left with an invisible click-catcher. Idle width
+  // matches the launch size in ipc.ts.
   const PANEL_W_IDLE = 520;
-  const PANEL_W_RECORDING = 224;
   const PANEL_H = 72;
-  // Monotonic token so a newer width animation cancels any in-flight one.
-  let widthAnimToken = 0;
+  const WRAPPER_PAD = 32; // outer px-4 → 16px each side
+  const BAR_W_IDLE = PANEL_W_IDLE - WRAPPER_PAD; // 488
+
+  let barContentEl = $state<HTMLElement | null>(null);
+  let measuredBarW = $state(BAR_W_IDLE);
+  const barWidth = new Tween(BAR_W_IDLE, { duration: 320, easing: cubicOut });
+  // Snap the very first measurement instead of animating from the seed value.
+  let barFirstMeasure = true;
+  // The window always hugs the bar (bar width + shadow padding). We grow the
+  // window immediately when the bar is about to expand (so it has room) and
+  // shrink it only after the bar tween settles (so it never clips). This
+  // tracks the last size we applied, and the timer defers the shrink.
+  let lastSyncedWin = PANEL_W_IDLE;
+  let winSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+  // Watch the content's natural width and tween the bar to match. Uses the
+  // border box (includes the content's own padding) so the bar wraps it
+  // exactly, and rounds to whole px so sub-pixel jitter can't retrigger.
+  $effect(() => {
+    if (!barContentEl) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(
+        entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width,
+      );
+      if (w > 0) measuredBarW = w;
+    });
+    ro.observe(barContentEl);
+    return () => ro.disconnect();
+  });
+
+  $effect(() => {
+    if (measuredBarW <= 0) return;
+    const targetWin = measuredBarW + WRAPPER_PAD;
+
+    if (barFirstMeasure) {
+      // First paint: size the bar + window to the content with no animation.
+      barWidth.set(measuredBarW, { duration: 0 });
+      barFirstMeasure = false;
+      lastSyncedWin = targetWin;
+      void setPanelWindowWidth(targetWin);
+      return;
+    }
+
+    // Tween the bar to the new measured width (instant under reduced motion).
+    if (prefersReducedMotion) barWidth.set(measuredBarW, { duration: 0 });
+    else barWidth.target = measuredBarW;
+
+    // Keep the window hugging the bar. Grow now so the bar can expand into the
+    // new space; defer shrink until the tween has settled so nothing clips.
+    if (winSyncTimer) {
+      clearTimeout(winSyncTimer);
+      winSyncTimer = null;
+    }
+    if (targetWin > lastSyncedWin || prefersReducedMotion) {
+      lastSyncedWin = targetWin;
+      void setPanelWindowWidth(targetWin);
+    } else if (targetWin < lastSyncedWin) {
+      winSyncTimer = setTimeout(() => {
+        winSyncTimer = null;
+        lastSyncedWin = targetWin;
+        void setPanelWindowWidth(targetWin);
+      }, 360);
+    }
+  });
 
   // Three visual phases. `idle` = full controls; `countdown` = big number +
   // cancel; `recording` = collapsed transport. Derived so the markup can
@@ -231,15 +304,6 @@
     const timer = window.setInterval(() => {
       if (isRecording) now = Date.now();
     }, 1000);
-
-    // Countdown setting, mirrored from localStorage. Re-read on `storage`
-    // events so changing it in the Settings window updates the panel live
-    // (Tauri webviews share a localStorage origin), without a relaunch.
-    readCountdownSetting();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === COUNTDOWN_KEY) readCountdownSetting();
-    };
-    window.addEventListener("storage", onStorage);
 
     const unlistenSource = listen<TargetSource>("source-selected", (event) => {
       selectedSource = event.payload;
@@ -364,8 +428,8 @@
     return () => {
       window.clearInterval(timer);
       if (profileFlashTimer) clearTimeout(profileFlashTimer);
+      if (winSyncTimer) clearTimeout(winSyncTimer);
       clearCountdown();
-      window.removeEventListener("storage", onStorage);
       unlistenSource.then((fn) => fn());
       unlistenDevice.then((fn) => fn());
       unlistenProfile.then((fn) => fn());
@@ -632,16 +696,6 @@
     }
   }
 
-  function readCountdownSetting() {
-    try {
-      const raw = localStorage.getItem(COUNTDOWN_KEY);
-      const n = raw !== null ? Number.parseInt(raw, 10) : 3;
-      globalCountdown = n === 0 || n === 3 || n === 5 || n === 10 ? n : 3;
-    } catch {
-      globalCountdown = 3;
-    }
-  }
-
   function clearCountdown() {
     if (countdownInterval) {
       clearInterval(countdownInterval);
@@ -677,66 +731,38 @@
   }
 
   /**
-   * Animate the panel window's width to `to` (logical px) with an eased rAF
-   * tween, keeping the panel centered on its current center (so it collapses
-   * symmetrically toward the middle rather than drifting to one edge). Honors
-   * prefers-reduced-motion by snapping. A monotonic token cancels any
-   * in-flight tween if a newer one starts.
+   * Snap the panel window to `to` (logical px) in a single step, keeping it
+   * centered on its current center. Size and position are issued together
+   * (not awaited sequentially) so the backend applies them in one tick — a
+   * centered window can't be resized + repositioned in two visible frames
+   * without hopping, and firing both at once avoids that. This is cosmetic
+   * cleanup of the window bounds *after* the CSS bar-morph has already moved
+   * the visible pixels, so any residual is at most a single frame.
    */
-  async function animatePanelWidth(to: number) {
+  async function setPanelWindowWidth(to: number) {
     const win = getCurrentWindow();
-    const token = ++widthAnimToken;
-
-    // Current logical width + center, so we can hold the center fixed and
-    // resolve the next top-left as the width changes.
-    let from = to;
-    let centerX: number | null = null;
-    let topY: number | null = null;
     try {
       const [size, pos, factor] = await Promise.all([
         win.innerSize(),
         win.outerPosition(),
         win.scaleFactor(),
       ]);
-      from = size.width / factor;
-      const leftX = pos.x / factor;
-      topY = pos.y / factor;
-      centerX = leftX + from / 2;
+      const fromW = size.width / factor;
+      const topY = pos.y / factor;
+      const centerX = pos.x / factor + fromW / 2;
+      await Promise.all([
+        win.setSize(new LogicalSize(to, PANEL_H)),
+        win.setPosition(
+          new LogicalPosition(Math.round(centerX - to / 2), Math.round(topY)),
+        ),
+      ]);
     } catch {
-      /* fall back to a plain snap below if we can't read geometry */
-    }
-    if (token !== widthAnimToken) return;
-
-    const apply = (w: number) => {
-      win.setSize(new LogicalSize(w, PANEL_H)).catch(() => {});
-      if (centerX !== null && topY !== null) {
-        win
-          .setPosition(new LogicalPosition(Math.round(centerX - w / 2), Math.round(topY)))
-          .catch(() => {});
+      try {
+        await win.setSize(new LogicalSize(to, PANEL_H));
+      } catch {
+        /* best effort */
       }
-    };
-
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || Math.round(from) === Math.round(to)) {
-      apply(to);
-      return;
     }
-
-    const duration = 300;
-    const start = performance.now();
-    await new Promise<void>((resolve) => {
-      const frame = (t: number) => {
-        if (token !== widthAnimToken) return resolve();
-        const p = Math.min(1, (t - start) / duration);
-        const eased = 1 - Math.pow(1 - p, 3); // cubicOut, matches morph.ts
-        apply(Math.round(from + (to - from) * eased));
-        if (p < 1) requestAnimationFrame(frame);
-        else resolve();
-      };
-      requestAnimationFrame(frame);
-    });
   }
 
   async function toggleRecording() {
@@ -770,15 +796,15 @@
       // then errors with "recording is not running" because the session
       // is already gone. Resetting here lets the user start a new
       // recording immediately.
-      isRecording = false;
       recordingStartTime = null;
       isPaused = false;
       pausedAccumMs = 0;
       pausedSince = null;
       emit("camera-recording-stopped");
       emit("refresh-recordings");
-      // Expand the panel back to its full control set.
-      void animatePanelWidth(PANEL_W_IDLE);
+      // Back to "idle" phase — the effect grows the window and expands the bar
+      // back to the full control set.
+      isRecording = false;
     }
   }
 
@@ -808,8 +834,9 @@
       isPaused = false;
       pausedAccumMs = 0;
       pausedSince = null;
-      // Collapse the panel to the compact recording transport.
-      void animatePanelWidth(PANEL_W_RECORDING);
+      // Flipping to the "recording" phase swaps in the compact transport; the
+      // ResizeObserver → Tween effect collapses the bar and the window follows
+      // it automatically. Nothing to do here.
       if (cameraOn) {
         emit("camera-recording-started", { startedAtUnixMs: now });
       }
@@ -907,6 +934,30 @@
       .toString()
       .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`,
   );
+
+  // Out-transition for a leaving phase block: pin it absolute at its current
+  // size so it no longer contributes to the content's measured width while it
+  // fades. The entering block sits in normal flow, so ResizeObserver reports
+  // the *new* width immediately and the bar Tween animates to it concurrent
+  // with the crossfade. Mirrors ExportFlowDialog's `phaseOut`.
+  function phaseOut(node: HTMLElement) {
+    const w = node.offsetWidth;
+    const h = node.offsetHeight;
+    // Pin centered (not top-left) so that as the bar morphs to the smaller
+    // incoming phase, the leaving phase clips/fades symmetrically from the
+    // center instead of appearing to shift to the left.
+    node.style.position = "absolute";
+    node.style.left = "50%";
+    node.style.top = "50%";
+    node.style.width = `${w}px`;
+    node.style.height = `${h}px`;
+    node.style.transform = "translate(-50%, -50%)";
+    return {
+      duration: 160,
+      easing: cubicOut,
+      css: (t: number) => `opacity: ${t}`,
+    };
+  }
 </script>
 
 <!-- Outer wrapper: fills the (oversized) Tauri window. Padding gives the
@@ -918,29 +969,26 @@
   data-tauri-drag-region
 >
 <div
-  class="group/panel relative flex h-11 overflow-hidden no-scrollbar w-full items-center gap-1 bg-card/95 p-2 pl-1 backdrop-blur-3xl border border-border/60 rounded-lg ring-1 ring-foreground/5"
+  class="group/panel relative flex h-11 shrink-0 items-center justify-center overflow-hidden no-scrollbar bg-card/95 backdrop-blur-xl border border-border/60 rounded-lg ring-1 ring-foreground/5"
+  style="width: {barWidth.current}px"
   data-tauri-drag-region
 >
-  <!-- Drag handle: explicit affordance for moving the panel. The whole bar
-       is a Tauri drag region, but users don't know that without a visible
-       grip. Hover lifts opacity so it doesn't compete visually at rest. -->
+  <!-- Content declares its own natural width (`w-fit`); the bar's width is a
+       Tween that follows it via ResizeObserver, so collapse/expand is one
+       smooth motion. The bar centers this content, so it morphs symmetrically. -->
   <div
+    bind:this={barContentEl}
+    class="relative flex w-fit shrink-0 items-center justify-center gap-1 p-2"
     data-tauri-drag-region
-    class="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted/40 hover:text-muted-foreground active:cursor-grabbing"
-    title="Drag to move"
-    aria-label="Drag panel"
   >
-    <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
-  </div>
-
   {#if phase === "countdown"}
-    <!-- Countdown phase: big ticking number + Cancel, in place of the full
-         control set. The panel stays full-width here; it only collapses once
-         capture actually starts. Esc also cancels (see handleGlobalShortcut). -->
+    <!-- Countdown phase: ring + ticking number + Cancel. Crossfades with the
+         other phases; the bar Tween follows its natural width. -->
     <div
-      class="flex w-full items-center gap-2.5 pr-1"
+      class="flex w-fit items-center gap-2.5"
       data-tauri-drag-region
-      in:fade={{ duration: 120 }}
+      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      out:phaseOut
     >
       <div
         class="relative flex size-7 shrink-0 items-center justify-center"
@@ -953,7 +1001,9 @@
           {countdownValue}
         </span>
       </div>
-      <span class="text-[12px] font-semibold tracking-tight text-foreground/80">
+      <span
+        class="shrink-0 whitespace-nowrap text-[12px] font-semibold tracking-tight text-foreground/80"
+      >
         Starting in {countdownValue}s…
       </span>
       <Button
@@ -961,62 +1011,96 @@
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         size="sm"
         variant="ghost"
-        class="ml-auto h-7 gap-1.5"
+        class="h-7 gap-1.5"
         title="Cancel (Esc)"
       >
         <X size={12} strokeWidth={2.5} class="text-destructive" />
         <span class="text-[11px] font-semibold">Cancel</span>
       </Button>
     </div>
-  {:else}
-  <ButtonGroup>
-    <!-- Record / Stop -->
-    <Button
-      onclick={toggleRecording}
-      onmousedown={(e: MouseEvent) => e.stopPropagation()}
-      size={isRecording ? "sm" : "icon-sm"}
-      variant={isRecording ? "destructive" : "default"}
-      title={isRecording ? "Stop Recording" : "Start Recording"}
+  {:else if phase === "recording"}
+    <!-- Recording phase: compact transport — soft-red Stop+timer, Pause,
+         Close — crossfaded in and centered by the bar. -->
+    <div
+      class="flex w-fit items-center gap-1"
+      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      out:phaseOut
     >
-      {#if isRecording}
-        <Square
-          size={12}
-          strokeWidth={0}
-          fill="currentColor"
-          class="animate-pulse"
-        />
-      {:else}
-        <Circle size={14} strokeWidth={0} fill="currentColor" />
-      {/if}
-      {#if isRecording}
-        <span
-          class="shrink-0 font-mono text-[13px] font-semibold tabular-nums tracking-tight"
-          class:text-foreground={!isPaused}
-          class:text-muted-foreground={isPaused}
-          data-tauri-drag-region
+      <ButtonGroup>
+        <Button
+          onclick={toggleRecording}
+          onmousedown={(e: MouseEvent) => e.stopPropagation()}
+          size="sm"
+          variant="destructive_soft"
+          title="Stop Recording"
         >
-          {timer}
-        </span>
-      {/if}
-    </Button>
-
-    <!-- Pause / Resume -->
-    {#if isRecording}
+          <Square
+            size={11}
+            strokeWidth={0}
+            fill="currentColor"
+            class="animate-pulse text-destructive"
+          />
+          <span
+            class="shrink-0 font-mono text-[13px] font-semibold tabular-nums tracking-tight"
+            class:text-foreground={!isPaused}
+            class:text-muted-foreground={isPaused}
+            data-tauri-drag-region
+          >
+            {timer}
+          </span>
+        </Button>
+        <Button
+          onclick={togglePause}
+          onmousedown={(e: MouseEvent) => e.stopPropagation()}
+          size="icon-sm"
+          variant={isPaused ? "success_soft" : "secondary"}
+          title={isPaused ? "Resume Recording" : "Pause Recording"}
+        >
+          {#if isPaused}
+            <Play size={13} strokeWidth={0} fill="currentColor" />
+          {:else}
+            <Pause size={13} strokeWidth={0} fill="currentColor" />
+          {/if}
+        </Button>
+      </ButtonGroup>
       <Button
-        onclick={togglePause}
+        onclick={closePanel}
+        onmousedown={(e: MouseEvent) => e.stopPropagation()}
+        title="Close"
+        size="icon-sm"
+        variant="ghost"
+      >
+        <X size={10} strokeWidth={2} class="shrink-0 text-destructive" />
+      </Button>
+    </div>
+  {:else}
+    <!-- Idle phase: full control set. Crossfades with the others. -->
+    <div
+      class="flex w-fit items-center gap-1"
+      in:fade={{ duration: 180, delay: 140, easing: cubicOut }}
+      out:phaseOut
+    >
+      <!-- Drag handle: explicit affordance for moving the panel. The whole
+           bar is a Tauri drag region, but the grip makes that discoverable. -->
+      <div
+        data-tauri-drag-region
+        class="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:bg-muted/40 hover:text-muted-foreground active:cursor-grabbing"
+        title="Drag to move"
+        aria-label="Drag panel"
+      >
+        <GripVertical size={12} strokeWidth={2} class="pointer-events-none" />
+      </div>
+      <!-- Record. The big primary action; clicking it begins the countdown
+           (or starts capture immediately when countdown is off). -->
+      <Button
+        onclick={toggleRecording}
         onmousedown={(e: MouseEvent) => e.stopPropagation()}
         size="icon-sm"
-        variant={isPaused ? "default" : "secondary"}
-        title={isPaused ? "Resume Recording" : "Pause Recording"}
+        variant="default"
+        title="Start Recording"
       >
-        {#if isPaused}
-          <Play size={13} strokeWidth={0} fill="currentColor" />
-        {:else}
-          <Pause size={13} strokeWidth={0} fill="currentColor" />
-        {/if}
+        <Circle size={14} strokeWidth={0} fill="currentColor" />
       </Button>
-    {/if}
-  </ButtonGroup>
 
   <!-- Source. Hidden once recording starts — the source is locked in, so the
        selector just takes space; dropping it is part of the collapse. The
@@ -1184,6 +1268,8 @@
       <X size={10} strokeWidth={2} class="shrink-0 text-destructive" />
     </Button>
   </div>
+    </div>
   {/if}
+  </div>
 </div>
 </div>

@@ -165,13 +165,18 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 	}
 	if (!isOwner && !isAdmin) error(403, "Not allowed to delete this recast");
 
-	// Best-effort blob delete. Skip legacy/external absolute URLs (only
-	// bare R2 keys are ours to remove). Archived rows may already be blobless
-	// — a 404 from the provider is fine, so swallow errors and still drop the
-	// row rather than stranding it.
+	// Best-effort blob delete. Skip legacy/external absolute URLs (only bare
+	// object keys are ours to remove). Archived rows may already be blobless —
+	// a 404 from the provider is fine, so swallow errors and still drop the row
+	// rather than stranding it. A non-404 failure (e.g. an Azure/S3 auth or
+	// firewall 403) is logged with the key but still non-fatal: orphaning the
+	// blob is recoverable via the storage console; stranding the DB row isn't.
 	if (row.videoUrl && !/^https?:\/\//.test(row.videoUrl)) {
 		await deleteObject(row.videoUrl).catch((err) => {
-			console.error(`[recasts/delete] R2 delete failed for ${row.id}`, err);
+			console.error(
+				`[recasts/delete] blob delete failed for ${row.id} (key=${row.videoUrl}) — row still removed`,
+				err,
+			);
 		});
 	}
 

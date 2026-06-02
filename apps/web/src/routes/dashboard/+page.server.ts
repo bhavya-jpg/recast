@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "$lib/db";
 import { recast, share } from "$lib/db/schema";
+import { resolvePlaybackUrl } from "$lib/storage";
 import type { PageServerLoad } from "./$types";
 
 /**
@@ -47,14 +48,19 @@ export const load: PageServerLoad = async ({ parent }) => {
 		.limit(12);
 
 	return {
-		recasts: recasts
-			.filter((r) => r.status !== "archived")
-			.map((r) => ({
-				...r,
-				sizeBytes: Number(r.sizeBytes),
-				views: Number(r.views ?? 0),
-				createdAt: r.createdAt.getTime(),
-			})),
+		// `videoUrl` is a bare object key — sign it into a playable URL (mirrors
+		// the share page; signing is local, and the list is capped at 12 here).
+		recasts: await Promise.all(
+			recasts
+				.filter((r) => r.status !== "archived")
+				.map(async (r) => ({
+					...r,
+					videoUrl: await resolvePlaybackUrl(r.videoUrl),
+					sizeBytes: Number(r.sizeBytes),
+					views: Number(r.views ?? 0),
+					createdAt: r.createdAt.getTime(),
+				})),
+		),
 	};
 };
 
